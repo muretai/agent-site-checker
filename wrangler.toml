@@ -19,12 +19,15 @@
 # three days for that reason, and no test can see it.
 name = "agent-site-checker"
 main = "src/worker.mjs"
-# PIN YOUR ACCOUNT ID HERE (or set CLOUDFLARE_ACCOUNT_ID in the environment). Without it,
-# wrangler falls back to calling /memberships to work out which account you mean — that
-# endpoint is User-scoped while a deploy token is Account-scoped, so an otherwise-valid token
-# fails with "Authentication failed (status: 400) [code: 9106]" and the message names neither
-# cause. Left unset here on purpose: this file is public, and the account is the deployer's.
-# account_id = "your-account-id"
+# THE ACCOUNT IS NOT IN THIS FILE, BY OWNER DIRECTIVE. Set CLOUDFLARE_ACCOUNT_ID in the
+# environment before deploying (the account switcher this project uses exports it from the
+# token). If it is missing, wrangler resolves the zone against whichever account it happens to
+# be authenticated as and fails with "Could not find zone for muretai.com" — an error that
+# names neither the cause nor the cure, so check that variable first.
+#
+# The failure that taught this: a deploy run as `source switcher | head -3 && wrangler deploy`
+# lost the exports to the pipe's subshell and went out under the wrong identity. Source the
+# switcher WITHOUT a pipe.
 compatibility_date = "2026-07-01"
 # nodejs_compat: the verification code is @muretai/agent-entry, which uses node:crypto and
 # Buffer for Ed25519.
