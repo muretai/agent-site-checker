@@ -22,6 +22,7 @@ import { renderPage } from './page.mjs';
 
 const JSON_HEADERS = {
   'Content-Type': 'application/json; charset=utf-8',
+  'X-Content-Type-Options': 'nosniff',
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, MCP-Protocol-Version, Mcp-Method, Mcp-Name',
@@ -30,6 +31,34 @@ const JSON_HEADERS = {
 /** How long a result is reused. Long enough that a link doing the rounds costs one fetch;
  *  short enough that a site owner who just deployed a fix sees it change. */
 const CACHE_TTL_S = 600;
+
+/**
+ * How many JSON-RPC messages one POST may carry.
+ *
+ * The batch used to be unbounded and processed in a sequential await loop, while the rate check
+ * ran ONCE before the array was even parsed — so a single request counted as one unit and could
+ * contain ten thousand tool calls, each fanning out to ~20 outbound fetches. That is the whole
+ * abuse ceiling of this service in one line. A real client batches a handful of calls; nobody
+ * legitimately sends more than this.
+ */
+const MAX_BATCH = 8;
+
+/** Security headers for anything a browser renders here. */
+const PAGE_SECURITY_HEADERS = {
+  // The page escapes every value it renders, and that escaping is currently the ONLY thing
+  // between a checked site's bytes and the DOM. A policy costs nothing and means a single
+  // missed insertion point in some future edit is not instantly exploitable. It has to allow
+  // inline style and script because this is a single-file page by design.
+  'Content-Security-Policy':
+    "default-src 'none'; " +
+    "script-src 'unsafe-inline' https://www.googletagmanager.com; " +
+    "style-src 'unsafe-inline'; " +
+    "img-src 'self' data: https://www.googletagmanager.com https://*.google-analytics.com; " +
+    "connect-src 'self' https://*.google-analytics.com https://*.analytics.google.com; " +
+    "form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+};
 
 const json = (obj, status = 200, extra = {}) =>
   new Response(JSON.stringify(obj, null, 2), { status, headers: { ...JSON_HEADERS, ...extra } });
@@ -168,7 +197,8 @@ export default {
         if (wantsHtml) {
           return new Response(mcpLandingPage(url.origin), {
             status: 405,
-            headers: { 'Content-Type': 'text/html; charset=utf-8', Allow: 'POST, OPTIONS' },
+            headers: { 'Content-Type': 'text/html; charset=utf-8', Allow: 'POST, OPTIONS',
+                       ...PAGE_SECURITY_HEADERS },
           });
         }
         return json({
@@ -199,6 +229,11 @@ export default {
       // A batch is a JSON array. Notifications produce no response, so an all-notification
       // batch answers 202 with no body rather than an empty array.
       const messages = Array.isArray(body) ? body : [body];
+      if (messages.length > MAX_BATCH) {
+        return json({ jsonrpc: '2.0', id: null,
+          error: { code: -32600,
+            message: `batch too large: ${messages.length} messages, the limit is ${MAX_BATCH}` } }, 413);
+      }
       const out = [];
       for (const m of messages) {
         const r = await dispatch(m, headers);
@@ -235,6 +270,7 @@ export default {
           // The page names the endpoint an agent should use instead of scraping it. Same
           // courtesy this tool checks other sites for.
           Link: `<${url.origin}/.well-known/mcp.json>; rel="service-desc"`,
+          ...PAGE_SECURITY_HEADERS,
         },
       });
     }

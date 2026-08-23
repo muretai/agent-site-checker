@@ -380,6 +380,100 @@ section('12. the MCP endpoint answers a browser like a person, and a client like
   eq(post.status, 200, 'and none of this touched the protocol itself');
 }
 
+// ------------------------------------------------ 13. the security audit's attacks, executed
+section('13. the attacks a red-team found — each one run against the product');
+{
+  // A1. THE CRITICAL ONE. A signature that verifies, over a card this site does not serve.
+  // Before the fix this reported verified + proven + fresh, certifying an identity the
+  // attacker does not hold — with a victim's genuine envelope copied verbatim.
+  const forged = await siteWithCard({ mutate: 'copied-envelope' });
+  const f = await checkSite(forged.origin, LOCAL);
+  eq(f.verification.signature.state, 'mismatched-card',
+     'a signature over a DIFFERENT card is not "verified"');
+  ok(f.verification.originBinding.state !== 'proven',
+     'and nothing about the origin is treated as proven',
+     f.verification.originBinding.state);
+  ok(f.summary.failed.length > 0, 'and the run FAILS');
+  ok(!/present, and verified/.test(f.verdict), 'and the verdict does not certify it', f.verdict);
+  await forged.close();
+
+  // A2. The confused deputy: the card names a door on somebody else's origin.
+  const elsewhere = await siteWithCard({ mutate: 'door-elsewhere' });
+  const d = await checkSite(elsewhere.origin, LOCAL);
+  eq(d.verification.door.reached, 'not-probed',
+     'no POST is sent to a door on another origin');
+  ok(/not on this origin/.test(d.verification.door.detail || ''), 'and the report says why');
+  await elsewhere.close();
+
+  // A3. Indirect prompt injection: newlines let a fetched value impersonate a new section of
+  // the very text this tool tells an agent to act on.
+  const inject = await siteWithCard({ mutate: 'injection' });
+  const i = await checkSite(inject.origin, LOCAL);
+  // The defense is that NEWLINES cannot survive out of a fetched value — that is what lets a
+  // string impersonate a new section. Assert exactly that, on the text an agent actually reads,
+  // rather than the weaker "the marker is absent" (a payload could simply be reworded).
+  const quoted = [i.verification.card.did, i.verification.card.name,
+                  i.verification.card.protocolVersion, i.verification.door.url]
+    .filter((x) => typeof x === 'string');
+  ok(quoted.length > 0, 'the fixture did get its values into the report (else this proves nothing)');
+  for (const q of quoted) {
+    ok(!/[\r\n\u2028\u2029\u0000-\u001f]/.test(q),
+       'a value quoted from the checked site carries no line break or control character',
+       JSON.stringify(q.slice(0, 40)));
+  }
+  for (const rem of i.remedies) {
+    ok(!/\n\s*SYSTEM:/i.test(rem.prompt),
+       `${rem.id}: no injected instruction starts a line in the generated prompt`);
+    ok(/PROVENANCE:/.test(rem.prompt),
+       `${rem.id}: the prompt tells its reader which parts came from the checked site`);
+  }
+  ok((i.verification.card.did || '').length <= 220,
+     'a fetched field is length-capped before it is quoted back',
+     `${(i.verification.card.did || '').length} chars`);
+  await inject.close();
+
+  // A4. A future timestamp is not freshness.
+  const future = await siteWithCard({ mutate: 'future' });
+  const fu = await checkSite(future.origin, LOCAL);
+  eq(fu.verification.freshness.state, 'future', 'an envelope dated ahead of now is not "fresh"');
+  ok(fu.summary.failed.length > 0, 'and it fails the run');
+  await future.close();
+
+  // A5. The guard's denylist holes: a trailing dot, and IPv4 embedded in IPv6 four ways.
+  const holes = ['http://localhost./', 'http://foo.local./', 'http://[::169.254.169.254]/',
+                 'http://[64:ff9b::169.254.169.254]/', 'http://[2002:a9fe:a9fe::]/',
+                 'http://[::127.0.0.1]/'];
+  for (const u of holes) {
+    let refused = false;
+    try { guardURL(u); } catch (e) { refused = e instanceof RefusedURL; }
+    ok(refused, `refuses ${u}`);
+  }
+
+  // A6. One request may no longer hide thousands of checks.
+  const worker = (await import('../src/worker.mjs')).default;
+  const batch = await worker.fetch(new Request('https://check.muretai.com/mcp', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(Array.from({ length: 200 }, (_, n) =>
+      ({ jsonrpc: '2.0', id: n, method: 'tools/list' }))),
+  }), {}, {});
+  eq(batch.status, 413, 'an oversized batch is refused before any work is done');
+
+  // A7. The time budget is for the whole check, not per hop.
+  const slow = await siteWithCard();
+  const t0 = Date.now();
+  await checkSite(slow.origin, { ...LOCAL, budgetMs: 700 });
+  ok(Date.now() - t0 < 4000, 'a check honours its overall budget',
+     `${Date.now() - t0}ms`);
+  await slow.close();
+
+  // A8. The page carries a policy, so one missed escape is not instantly exploitable.
+  const page = await worker.fetch(new Request('https://check.muretai.com/'), {}, {});
+  const csp = page.headers.get('content-security-policy') || '';
+  ok(csp.includes("default-src 'none'") && csp.includes("frame-ancestors 'none'"),
+     'the page ships a Content-Security-Policy', csp.slice(0, 60));
+  eq(page.headers.get('x-content-type-options'), 'nosniff', 'and nosniff');
+}
+
 // ----------------------------------------------------------------
 console.log(`\n${'-'.repeat(60)}`);
 console.log(`${passed} passed, ${failures.length} failed`);

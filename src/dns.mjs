@@ -46,13 +46,14 @@ export const DNSAID_LABELS = ['_index', '_a2a', '_mcp'];
  * signed and whose signatures do not check out — which is strictly worse than unsigned and is
  * reported as such rather than being flattened into "not found".
  */
-export async function dohQuery(name, type, { resolver = 'cloudflare' } = {}) {
+export async function dohQuery(name, type, { resolver = 'cloudflare', deadline = null } = {}) {
   const base = RESOLVERS[resolver] || resolver;
   const url = `${base}?name=${encodeURIComponent(name)}&type=${encodeURIComponent(type)}&do=1`;
   const res = await boundedFetch(url, {
     headers: { Accept: 'application/dns-json', 'User-Agent': USER_AGENT },
     maxBytes: 64 * 1024,
     timeoutMs: 6000,
+    deadline,
   });
   if (res.error || res.status !== 200) {
     return { name, type, status: null, ad: null, answers: [], resolver,
@@ -199,6 +200,12 @@ export async function dnsAid(hostname, opts = {}) {
       const dnssec = await zoneDnssec(domain, opts);
       return {
         domain,
+        // TRUE when the records were found one label up, not on the name we were asked about.
+        // The fallback exists because a site is often www.example.com while its discovery zone
+        // is example.com — but the parent's records and the parent's DNSSEC state are NOT
+        // statements about the child, and reporting them as the child's verdict lets anyone who
+        // takes over a dangling subdomain inherit the parent's green.
+        inherited: domain !== hostname,
         queried: results.map((r) => ({ name: r.name, status: r.status, ad: r.ad, error: r.error })),
         found: records.length > 0,
         complete: lookupErrors.length === 0,

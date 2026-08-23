@@ -58,6 +58,12 @@ export class RefusedURL extends Error {
 
 function isIPv4Literal(host) { return /^\d{1,3}(\.\d{1,3}){3}$/.test(host); }
 
+/** The low 32 bits of an IPv6 address, written as two hex groups, read back as a dotted quad. */
+function hexPairToV4(hi, lo) {
+  const n = ((parseInt(hi, 16) << 16) | parseInt(lo, 16)) >>> 0;
+  return [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join('.');
+}
+
 /**
  * Validate one URL. Returns a URL object or throws RefusedURL. Exported so the redirect
  * loop and the tests can call the SAME function the entry point calls — a second copy of
@@ -83,7 +89,10 @@ export function guardURL(input, { allowPrivate = false } = {}) {
   if (!ALLOWED_PORTS.has(u.port)) {
     throw new RefusedURL(u.href, `port ${u.port} is not a web port`);
   }
-  const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  // The trailing dot is the root label and it is legal in a URL: `localhost.` resolves to
+  // loopback and `foo.local.` to the LAN, while neither matches a check written against the
+  // dotless spelling. Strip it before any name comparison — an audit found both slipping past.
+  const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.+$/, '');
   if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) {
     throw new RefusedURL(u.href, `${host} names this machine or its LAN`);
   }
@@ -93,31 +102,31 @@ export function guardURL(input, { allowPrivate = false } = {}) {
     }
   }
   if (host.includes(':')) {                        // an IPv6 literal
-    const h = host.toLowerCase();
+    const h = host;
     if (h === '::1' || h === '::' || /^f[cd]/.test(h) || /^fe[89ab]/.test(h)) {
       throw new RefusedURL(u.href, `${host} is a loopback, unique-local or link-local address`);
     }
-    // IPv4-mapped addresses, in BOTH spellings. This is the hole that a naive check leaves:
-    // the WHATWG URL parser normalises `::ffff:127.0.0.1` to `::ffff:7f00:1`, so a guard that
-    // only looks for the dotted form lets loopback through in hexadecimal. Measured, not
-    // theorised — the first run of this file's own test refused seven addresses and passed
-    // `http://[::ffff:127.0.0.1]/` straight to fetch.
-    const mapped = /^::ffff:(.+)$/.exec(h);
-    if (mapped) {
-      const tail = mapped[1];
-      let v4 = null;
-      if (isIPv4Literal(tail)) {
-        v4 = tail;
-      } else {
-        const hex = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(tail);
-        if (hex) {
-          const n = (parseInt(hex[1], 16) << 16) | parseInt(hex[2], 16);
-          v4 = [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join('.');
-        }
-      }
-      if (v4) {
-        for (const [re, why] of PRIVATE_V4) {
-          if (re.test(v4)) throw new RefusedURL(u.href, `${host} maps to ${v4}, which is ${why}`);
+    // EVERY IPv6 FORM THAT EMBEDS AN IPv4 ADDRESS, not just `::ffff:`.
+    //
+    // This was a denylist with named holes, and an audit walked through three of them. The URL
+    // parser rewrites `::169.254.169.254` to `::a9fe:a9fe`, `64:ff9b::169.254.169.254` (NAT64)
+    // to `64:ff9b::a9fe:a9fe`, and `2002:a9fe:a9fe::` (6to4) keeps the address in its first two
+    // groups — so a guard that only decoded `::ffff:` let link-local through in three
+    // notations. The families below all carry a v4 address in the low 32 bits (or, for 6to4,
+    // the high ones), so each is decoded and run through the SAME v4 rules. Deprecated and
+    // non-routable is not the same as unreachable, and on Node — where this same file ships in
+    // the CLI — there is no runtime backstop underneath it at all.
+    const embedded = [];
+    const low32 = /^(?:::ffff:|::|64:ff9b(?:::|:[0-9a-f:]*:))([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(h);
+    if (low32) embedded.push(hexPairToV4(low32[1], low32[2]));
+    const dotted = /(?:^|:)((?:\d{1,3}\.){3}\d{1,3})$/.exec(h);
+    if (dotted) embedded.push(dotted[1]);
+    const sixToFour = /^2002:([0-9a-f]{1,4}):([0-9a-f]{1,4}):/.exec(h);
+    if (sixToFour) embedded.push(hexPairToV4(sixToFour[1], sixToFour[2]));
+    for (const v4 of embedded.filter(Boolean)) {
+      for (const [re, why] of PRIVATE_V4) {
+        if (re.test(v4)) {
+          throw new RefusedURL(u.href, `${host} embeds ${v4}, which is ${why}`);
         }
       }
     }
@@ -145,14 +154,27 @@ export function normaliseInput(input, opts = {}) {
 export async function boundedFetch(url, {
   method = 'GET', body = null, headers = {},
   maxBytes = DEFAULT_MAX_BYTES, timeoutMs = DEFAULT_TIMEOUT_MS, maxRedirects = MAX_REDIRECTS,
-  allowPrivate = false,
+  allowPrivate = false, deadline = null,
 } = {}) {
   const redirects = [];
   let current = guardURL(url instanceof URL ? url.href : url, { allowPrivate });
 
   for (let hop = 0; hop <= maxRedirects; hop++) {
+    // THE TIMEOUT USED TO BE PER HOP, WHICH IS NOT A CEILING.
+    //
+    // This timer lives inside the redirect loop, so four hops cost four full timeouts, and the
+    // engine runs six such stages in sequence — an attacker who redirect-chains and then stalls
+    // every path made one check take minutes, on a service anyone may call for free. `deadline`
+    // is an absolute wall for the WHOLE check, passed down from the caller: each hop gets the
+    // smaller of its own timeout and whatever is left.
+    const remaining = deadline == null ? timeoutMs : deadline - Date.now();
+    if (deadline != null && remaining <= 0) {
+      return { status: null, headers: {}, body: '', bytes: 0,
+               finalUrl: current.href, redirects,
+               error: 'the overall time budget for this check ran out' };
+    }
     const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(), timeoutMs);
+    const timer = setTimeout(() => ac.abort(), Math.min(timeoutMs, Math.max(1, remaining)));
     let res;
     try {
       res = await fetch(current.href, {

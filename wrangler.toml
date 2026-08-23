@@ -47,9 +47,12 @@ routes = [
   { pattern = "check.muretai.com/*", zone_name = "muretai.com" },
 ]
 
-# Optional. The service works without it; with it, one address cannot spend the whole budget.
-# [[unsafe.bindings]]
-# name = "RATE_LIMITER"
-# type = "ratelimit"
-# namespace_id = "1001"
-# simple = { limit = 60, period = 60 }
+# THE ONLY VOLUME CONTROL THIS SERVICE HAS. rateLimited() in worker.mjs fails OPEN when the
+# binding is missing — which is right for availability and meant that, while this stayed
+# commented out, the "cost control" the whole design leaned on did not exist in production.
+# An audit found it. Keep it bound.
+[[unsafe.bindings]]
+name = "RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 60, period = 60 }
