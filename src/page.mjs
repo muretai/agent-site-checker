@@ -11,6 +11,12 @@
  * back, so a reader who disagrees can go and look. `assertNoScore` in report.mjs is pointed at
  * this file's output by the test suite for exactly that reason.
  *
+ * NOTE FOR EDITORS: the CSS below lives inside a JavaScript template literal, so a
+ * BACKTICK IN A CSS COMMENT ends the string and the module stops parsing. Quote CSS
+ * identifiers in comments with plain words, never with backticks. (Caught twice by
+ * npm test, which imports this module — that is the only thing standing between the
+ * habit and a broken deploy.)
+ *
  * The theme block is the canonical muretai paper palette, inlined verbatim
  * (.claude/skills/muretai-page/assets/theme.css). Public pages are single-file HTML: no
  * framework, no build step, no external stylesheet — which is also what keeps the CSP tight.
@@ -240,8 +246,43 @@ form.ask input { flex:1; }
 .kv { display:flex; justify-content:space-between; gap:var(--s2); padding:10px 0;
       border-bottom:1px solid var(--line); font-size:14px; align-items:flex-start; }
 .kv:last-child { border-bottom:0; }
-.kv .k { color:var(--muted); }
-.kv .v { text-align:right; font-family:var(--mono); font-size:12.5px; word-break:break-all; }
+/* the label column takes the slack and wraps; min-width:0 is what lets a long URL wrap
+   inside a flex child instead of pushing the chip off the row. */
+.kv .k { flex:1 1 auto; min-width:0; color:var(--ink); overflow-wrap:anywhere; }
+/* the chip column never shrinks and never breaks: "absent" split across three lines as
+   "ab / se / nt" was word-break:break-all, which is meant for DIDs, reaching the status word. */
+.kv .v { flex:0 0 auto; text-align:right; font-family:var(--mono); font-size:12.5px; }
+.kv .v.wrap { word-break:break-all; }
+.chip { white-space:nowrap; }
+/* The detail line under a label. This used to be scoped to the .rows block only, so in the fact list
+   it had no styles at all — no line break, no muted colour — and every row read as
+   "llms.txthttps://muretai.com/llms.txt". Define it once, for every place it is used. */
+.dt { display:block; color:var(--muted); font-size:12.5px; line-height:1.45;
+      margin-top:3px; font-family:inherit; overflow-wrap:anywhere; }
+/* mono is for DIDs and tokens only (docs/DESIGN_SYSTEM.md), not for prose detail. */
+.dt.mono { font-family:var(--mono); font-size:12px; }
+
+/* No ligatures in anything copyable. The mono stack renders "--transport" as one long dash,
+   so a reader who retypes the install line instead of copying it types an em dash and the
+   command fails with an error that names neither cause. The bytes were always two hyphens;
+   only the glyph lied. */
+.cmd code, pre, code, .dt.mono { font-variant-ligatures:none; }
+
+/* The canonical .sec-head centres its sub-paragraph with auto margins, which is right when the
+   whole head is centred. These heads are left-aligned, so the auto margins put the sentence in
+   the middle of the page under a flush-left heading. Align it with its own heading. */
+.sec-head .sub { margin-inline:0; }
+
+/* THE MOBILE BREAK, and it is worth naming because the cause is invisible on a laptop. The
+   verdict sentence contains a did:key — 57 characters with nothing to break on. A single
+   unbreakable token is wider than a phone, so it widened the whole document, and every other
+   element then laid out against that width and got clipped by the body's overflow-clip: the
+   headline lost its last word, the chips left the screen, the button ran past the edge. None
+   of it was a flexbox problem. break-word breaks ONLY the word that cannot fit, so ordinary
+   prose is untouched. */
+.verdict p, .lede, .sub, .card p, .hint, p { overflow-wrap:break-word; }
+/* Belt and braces: a panel in a grid must be allowed to be narrower than its own content. */
+.panel, .card, .grid > * { min-width:0; }
 .rows { margin-top:var(--s2); }
 .rows li { list-style:none; padding:8px 0; border-bottom:1px solid var(--line);
            font-size:13.5px; display:flex; gap:var(--s1); align-items:baseline; }
@@ -250,7 +291,6 @@ form.ask input { flex:1; }
             padding-top:3px; min-width:42px; }
 .lv.PASS { color:var(--good); } .lv.FAIL { color:var(--bad); }
 .lv.WARN { color:var(--warn); } .lv.INFO { color:var(--muted); }
-.rows .dt { color:var(--muted); display:block; font-size:12.5px; margin-top:2px; }
 .spin { color:var(--muted); font-size:14px; margin-top:var(--s3); }
 @media (max-width:520px) { form.ask { flex-direction:column; } }
 </style>
@@ -377,10 +417,10 @@ const CHIP = { verified:'good', proven:'good', fresh:'good', signed:'good',
                absent:'warn', unproven:'warn', unsigned:'warn', incomplete:'warn', unknown:'dim',
                'not-probed':'dim' };
 
-function kv(k, state, detail) {
+function kv(k, state, detail, mono) {
   const chip = CHIP[state] || 'dim';
   return '<div class="kv"><span class="k">' + esc(k) +
-    '<span class="dt" style="display:block">' + esc(detail || '') + '</span></span>' +
+    (detail ? '<span class="dt' + (mono ? ' mono' : '') + '">' + esc(detail) + '</span>' : '') + '</span>' +
     '<span class="v"><span class="chip ' + chip + '">' + esc(state) + '</span></span></div>';
 }
 
@@ -398,7 +438,7 @@ function render(r) {
     h += '<div class="grid"><div class="panel">' +
       '<h3 style="margin:0 0 var(--s1);font-size:16px">Verified, or not</h3>';
     if (v.card && v.card.present) {
-      h += kv('agent card', 'present', v.card.did || '');
+      h += kv('agent card', 'present', v.card.did || '', true);
       h += kv('signature', (v.signature||{}).state, (v.signature||{}).detail);
       h += kv('origin binding', (v.originBinding||{}).state, (v.originBinding||{}).detail);
       h += kv('freshness', (v.freshness||{}).state, (v.freshness||{}).detail);
