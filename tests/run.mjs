@@ -264,6 +264,59 @@ section('8. DNSSEC states, and a lookup that failed is never an absence');
      'a name that answered is not listed as an error');
 }
 
+// ---------------------------------------------- 9. remedies: actionable, sourced, and honest
+section('9. every finding is actionable, cites its specification, and refuses to invent surfaces');
+{
+  const { remediesFor, REMEDIES, NO_REMEDY } = await import('../src/remedies.mjs');
+
+  const bare = await bareSite();
+  const r = await checkSite(bare.origin, LOCAL);
+  ok(r.remedies.length > 0, 'a site with nothing published still gets an actionable list');
+  ok(r.remedies.every((x) => x.kind === 'add'),
+     'and every item is an OFFER, not a defect — absence is not a fault');
+  ok(r.remedies.every((x) => x.prompt.includes('Publish only what is already true')),
+     'EVERY prompt carries the honesty clause');
+  ok(r.remedies.every((x) => x.resources.length > 0 && x.resources.every((s) => /^https:\/\//.test(s.url))),
+     'every item cites at least one specification, over https');
+  ok(!r.remedies.some((x) => NO_REMEDY[x.id]),
+     'surfaces we deliberately do not promote produce no prompt',
+     Object.keys(NO_REMEDY).join(','));
+  await bare.close();
+
+  // A broken card must produce a FIX, ordered ahead of the offers.
+  const broken = await siteWithCard({ mutate: 'copied-card' });
+  const b = await checkSite(broken.origin, LOCAL);
+  const fixes = b.remedies.filter((x) => x.kind === 'fix');
+  ok(fixes.some((x) => x.id === 'origin-mismatch'), 'a copied card produces the origin-mismatch fix');
+  ok(b.remedies.indexOf(fixes[0]) === 0, 'what is BROKEN is listed before what is merely absent');
+  ok(fixes[0].prompt.includes('re-signing') || fixes[0].prompt.includes('re-sign'),
+     'the fix prompt warns against editing signed bytes without re-signing');
+  await broken.close();
+
+  // The prompts are the most dangerous thing here: a remediation prompt is the most efficient
+  // possible way to industrialise self-declaration. This is the guard.
+  for (const [id, entry] of Object.entries(REMEDIES)) {
+    const text = entry.prompt({ origin: 'https://example.com', host: 'example.com',
+                                did: 'did:key:z6MkExample', detail: '' });
+    ok(text.includes('Publish only what is already true'), `${id}: honesty clause present`);
+  }
+}
+
+// -------------------------------------------------- 10. the MCP surface is not one client's
+section('10. the install instructions belong to no single client');
+{
+  const page = renderPage('');
+  ok(page.includes('<code>https://check.muretai.com/mcp</code>'),
+     'the endpoint URL is offered on its own, as the primary fact');
+  ok(page.includes('"mcpServers"'), 'a portable JSON config is shown');
+  ok(page.includes('mcp-remote'), 'a path exists for a client with no HTTP transport');
+  ok(page.indexOf('claude mcp add') > page.indexOf('"mcpServers"'),
+     'a vendor CLI appears only as one example, after the portable forms');
+  ok((page.match(/claude/gi) || []).length <= 2,
+     'the page does not read as belonging to one vendor',
+     `${(page.match(/claude/gi) || []).length} mentions`);
+}
+
 // ----------------------------------------------------------------
 console.log(`\n${'-'.repeat(60)}`);
 console.log(`${passed} passed, ${failures.length} failed`);

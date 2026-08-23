@@ -54,13 +54,50 @@ rubric produced it, and there is no arguing with a number. `assertNoScore` in
 `src/report.mjs` is pointed at both the JSON and the rendered page by the test suite, so
 one cannot grow back by accident.
 
+## Every finding is actionable, and cites its source
+
+A finding a reader cannot act on is trivia. Each one carries links to the normative text it
+was measured against — RFC 9727 for the API catalog, RFC 9264 for the linkset it is written
+in, RFC 9460 and the DNS-AID draft for the SVCB records, RFC 9421 for message signatures,
+and so on — and a prompt written to be handed straight to whoever works on that site.
+
+**Every generated prompt says to publish only what is already true.** That constraint is
+tested, on every entry, and it is the point rather than a disclaimer: this whole category
+scores sites on self-declaration, which rewards exactly one behaviour — writing a manifest
+claiming a capability nobody implemented — and a remediation prompt is the most efficient
+possible way to industrialise it. Several entries say in as many words which file must NOT be
+created if the underlying thing does not exist.
+
+Findings are split by what they are. Something **broken** (a signature that does not verify, a
+card copied from another origin, records in an unsigned zone) is listed first, as a defect.
+Something **absent** is offered as "if you want this, here is how" — publishing no agent card
+is not a fault, and a checker that words it as one is grading a whole category by its own
+yardstick.
+
 ## For agents
 
+The endpoint is the whole configuration:
+
 ```
-claude mcp add --transport http agent-site-checker https://check.muretai.com/mcp
+https://check.muretai.com/mcp
 ```
 
-Stateless Streamable HTTP, no key, no session, two read-only tools:
+Streamable HTTP, no key, no session. Most clients take a JSON config:
+
+```json
+{
+  "mcpServers": {
+    "agent-site-checker": {
+      "type": "http",
+      "url": "https://check.muretai.com/mcp"
+    }
+  }
+}
+```
+
+A client with no HTTP transport can reach it through a local bridge
+(`npx -y mcp-remote https://check.muretai.com/mcp`), and clients with their own CLI installer
+take the URL directly. Two read-only tools:
 
 - **`check_site(url)`** — the whole chain, written for the moment you were handed a URL:
   which interfaces exist, the endpoint for each, whether the identity is verified, and what
@@ -70,7 +107,12 @@ Stateless Streamable HTTP, no key, no session, two read-only tools:
 
 Both generations of the protocol are served on the one endpoint — the `initialize`
 handshake and the self-describing `2026-07-28` revision (`server/discover`, per-request
-`_meta`, `resultType`, `-32022`). Discovery document at `/.well-known/mcp.json`.
+`_meta`, `resultType`, `-32022`) — so a client of either era connects with no configuration
+of its own. Discovery document at `/.well-known/mcp.json`.
+
+`check_site` returns the remedies above in `structuredContent.remedies`, each with its
+specification links and its prompt. The caller of this tool is usually the agent that would
+do the fixing.
 
 ## For a site owner
 
@@ -104,6 +146,8 @@ src/dns.mjs      DNS-AID over DoH, and the DNSSEC state that decides whether it 
                  anything.
 src/engine.mjs   the check itself.
 src/report.mjs   PASS / FAIL / WARN / INFO, and no way to produce a score.
+src/remedies.mjs what to do about a finding, where the rule is written down, and the
+                 constraint that keeps a remediation prompt from manufacturing lies.
 src/mcp.mjs      one stateless endpoint, two generations of MCP client.
 src/worker.mjs   the edge entry point: page, JSON API, MCP, discovery document.
 src/page.mjs     the human surface.

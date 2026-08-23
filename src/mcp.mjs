@@ -68,7 +68,9 @@ export const TOOLS = [
       + 'recently enough to be a live service, and is the DNS-AID zone DNSSEC-signed. Other '
       + 'surfaces (llms.txt, robots rules, sitemap, MCP server card, skills index, markdown '
       + 'negotiation) are reported as plain facts. There is no score and no grade: the report '
-      + 'names every URL it fetched and what came back, so you can judge it yourself.',
+      + 'names every URL it fetched and what came back, so you can judge it yourself. Each '
+      + 'finding comes with links to the specification it was measured against and a ready '
+      + 'prompt for fixing or publishing it.',
     inputSchema: CHECK_INPUT,
     annotations: { readOnlyHint: true, openWorldHint: true },
   },
@@ -112,6 +114,22 @@ function summaryText(r) {
   }
   const failed = r.summary?.failed ?? [];
   if (failed.length) lines.push('', `failed checks: ${failed.join('; ')}`);
+
+  // The caller of this tool is very often the agent that would do the fixing, so the remedies
+  // are named here rather than left to be discovered in the structured payload.
+  const rem = r.remedies || [];
+  const broken = rem.filter((x) => x.kind === 'fix');
+  const absent = rem.filter((x) => x.kind === 'add');
+  if (rem.length) {
+    lines.push('');
+    if (broken.length) lines.push(`to fix (${broken.length}): ${broken.map((x) => x.id).join(', ')}`);
+    if (absent.length) lines.push(`not published (${absent.length}, none of it a fault): `
+      + absent.map((x) => x.id).join(', '));
+    lines.push('structuredContent.remedies carries, for each of these, links to the normative '
+      + 'specification and a prompt written to be handed to whoever works on that site. Every '
+      + 'prompt says to publish only what is already true — do not create a discovery document '
+      + 'for something that does not exist.');
+  }
   return lines.join('\n');
 }
 

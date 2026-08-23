@@ -32,6 +32,7 @@ import {
 import { boundedFetch, normaliseInput, RefusedURL } from './guard.mjs';
 import { Report } from './report.mjs';
 import { dnsAid } from './dns.mjs';
+import { remediesFor } from './remedies.mjs';
 
 export const VERSION = '0.1.0';
 
@@ -106,6 +107,7 @@ export async function checkSite(input, { resolver = 'cloudflare', probeDoor = tr
     verification: {},
     dnsAid: null,
     facts: [],
+    remedies: [],
     rows: [],
     summary: null,
     verdict: null,
@@ -405,6 +407,9 @@ export async function checkSite(input, { resolver = 'cloudflare', probeDoor = tr
   result.rows = rep.rows;
   result.summary = rep.summary();
   result.verdict = verdictSentence(result);
+  // Composed last, from the finished result: a finding a reader cannot act on is trivia, and
+  // the consumer of this API is very often the coding agent that would do the acting.
+  result.remedies = remediesFor(result);
   return result;
 }
 

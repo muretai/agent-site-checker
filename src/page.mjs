@@ -283,6 +283,16 @@ form.ask input { flex:1; }
 .verdict p, .lede, .sub, .card p, .hint, p { overflow-wrap:break-word; }
 /* Belt and braces: a panel in a grid must be allowed to be narrower than its own content. */
 .panel, .card, .grid > * { min-width:0; }
+
+/* the remediation list */
+.remedy summary { display:flex; align-items:center; gap:var(--s1); flex-wrap:wrap; }
+.remedy pre { margin-top:var(--s2); white-space:pre-wrap; max-height:340px; overflow:auto; }
+.remedy .res { display:flex; flex-wrap:wrap; gap:var(--s1); margin-top:var(--s2); }
+.remedy .res a { font:12px/1 var(--mono); border:1px solid var(--line); border-radius:999px;
+                 padding:6px 10px; color:var(--accent); text-decoration:none; }
+.remedy .res a:hover { background:var(--panel2); text-decoration:none; }
+.remedy .act { margin-top:var(--s2); display:flex; gap:var(--s1); align-items:center; }
+.remedy button { padding:9px 14px; font-size:13px; }
 .rows { margin-top:var(--s2); }
 .rows li { list-style:none; padding:8px 0; border-bottom:1px solid var(--line);
            font-size:13.5px; display:flex; gap:var(--s1); align-items:baseline; }
@@ -323,14 +333,59 @@ form.ask input { flex:1; }
     <div class="sec-head">
       <p class="eyebrow">For agents</p>
       <h2>The same check, over MCP.</h2>
-      <p class="sub">If you were handed a URL mid-task, you do not need this page. Two read-only
-        tools, no key, no session: <code>check_site</code> and <code>verify_agent_card</code>.</p>
+      <p class="sub">If you were handed a URL mid-task, you do not need this page. One endpoint,
+        no key, no session, two read-only tools: <code>check_site</code> and
+        <code>verify_agent_card</code>.</p>
     </div>
+
     <div class="cmd" style="margin-top:var(--s3)">
-      <code>claude mcp add --transport http agent-site-checker https://check.muretai.com/mcp</code>
+      <code>https://check.muretai.com/mcp</code>
     </div>
-    <p class="hint" style="margin-top:var(--s1)">Discovery document:
-      <a href="/.well-known/mcp.json">/.well-known/mcp.json</a> · JSON for one URL:
+    <p class="hint" style="margin-top:var(--s1)">Streamable HTTP. Both generations of the
+      protocol are served on that one address — the <code>initialize</code> handshake and the
+      self-describing 2026-07-28 revision — so a client of either era connects with no
+      configuration of its own. Discovery document:
+      <a href="/.well-known/mcp.json">/.well-known/mcp.json</a>.</p>
+
+    <details>
+      <summary>For a client that reads a JSON config</summary>
+      <pre style="margin-top:var(--s2)"><code>{
+  "mcpServers": {
+    "agent-site-checker": {
+      "type": "http",
+      "url": "https://check.muretai.com/mcp"
+    }
+  }
+}</code></pre>
+      <p class="hint" style="margin-top:var(--s1)">The shape most desktop and editor clients
+        accept. Some spell the field <code>"transport"</code> rather than <code>"type"</code>,
+        and a few take the URL on its own — check your client's own documentation for the key
+        name; the address is the same either way.</p>
+    </details>
+
+    <details>
+      <summary>For a client that speaks stdio only</summary>
+      <pre style="margin-top:var(--s2)"><code>{
+  "mcpServers": {
+    "agent-site-checker": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://check.muretai.com/mcp"]
+    }
+  }
+}</code></pre>
+      <p class="hint" style="margin-top:var(--s1)">Clients that predate the HTTP transport can
+        reach a remote server through a local bridge. Nothing is installed permanently and no
+        credential is involved.</p>
+    </details>
+
+    <details>
+      <summary>From a command line</summary>
+      <pre style="margin-top:var(--s2)"><code>claude mcp add --transport http agent-site-checker https://check.muretai.com/mcp</code></pre>
+      <p class="hint" style="margin-top:var(--s1)">One example, not a requirement. Any client
+        that accepts a remote MCP URL accepts the address above directly.</p>
+    </details>
+
+    <p class="hint" style="margin-top:var(--s2)">Prefer plain HTTP? One URL, one JSON document:
       <a href="/api/check?url=muretai.com">/api/check?url=…</a></p>
   </section>
 
@@ -473,6 +528,45 @@ function render(r) {
     }
     h += '</ul></div></details>';
   }
+  h += renderRemedies(r);
+  return h;
+}
+
+function renderRemedies(r) {
+  const list = r.remedies || [];
+  if (!list.length) return '';
+  const groups = [
+    ['fix', 'Broken, and worth fixing',
+     'Something here is published and does not hold up. These are the ones with a reader on the '
+     + 'other end who will be turned away.'],
+    ['add', 'Not published',
+     'Absence is not a fault — a site that publishes no agent card has done nothing wrong. These '
+     + 'are offered as "if you want this, here is how", and every prompt says to publish only '
+     + 'what is already true.'],
+  ];
+  let h = '';
+  for (const [kind, title, sub] of groups) {
+    const items = list.filter((x) => x.kind === kind);
+    if (!items.length) continue;
+    h += '<section class="band"><div class="sec-head">' +
+      '<p class="eyebrow">' + (kind === 'fix' ? 'To fix' : 'To publish') + '</p>' +
+      '<h2>' + esc(title) + '</h2><p class="sub">' + esc(sub) + '</p></div>';
+    for (const it of items) {
+      const idx = list.indexOf(it);
+      h += '<details class="remedy"><summary>' +
+        '<span class="chip ' + (kind === 'fix' ? 'warn' : 'dim') + '">' + esc(it.id) + '</span>' +
+        '<span>' + esc(it.title) + '</span></summary>' +
+        '<div class="res">' +
+        it.resources.map((rs) => '<a href="' + esc(rs.url) + '" rel="noopener" target="_blank">' +
+          esc(rs.label) + '</a>').join('') +
+        '</div>' +
+        '<pre id="p' + idx + '">' + esc(it.prompt) + '</pre>' +
+        '<div class="act"><button type="button" class="copy" data-target="p' + idx + '">' +
+        'Copy prompt</button><span class="hint">Paste it to whichever agent works on that site.' +
+        '</span></div></details>';
+    }
+    h += '</section>';
+  }
   return h;
 }
 
@@ -489,6 +583,28 @@ async function run(target) {
       esc(e.message) + '</p></div>';
   }
 }
+
+out.addEventListener('click', async (e) => {
+  const btn = e.target.closest('.copy');
+  if (!btn) return;
+  const pre = document.getElementById(btn.dataset.target);
+  if (!pre) return;
+  try {
+    await navigator.clipboard.writeText(pre.textContent);
+    btn.textContent = 'Copied';
+    setTimeout(() => { btn.textContent = 'Copy prompt'; }, 1600);
+  } catch {
+    // Clipboard access can be refused, and a button that silently does nothing is worse than
+    // no button: select the text so the reader can copy it the ordinary way.
+    const sel = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(pre);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    btn.textContent = 'Selected — press copy';
+    setTimeout(() => { btn.textContent = 'Copy prompt'; }, 2400);
+  }
+});
 
 form.addEventListener('submit', (e) => {
   e.preventDefault();
