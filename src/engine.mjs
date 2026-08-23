@@ -383,7 +383,7 @@ export async function checkSite(input, { resolver = 'cloudflare', probeDoor = tr
   for (const r of d.records) {
     const alpn = r.params?.alpn;
     result.interfaces.push({
-      kind: `dns-aid${r.label}`, endpoint: r.target, alpn: alpn || null,
+      kind: `dns-aid:${r.label}`, endpoint: r.target, alpn: alpn || null,
       identityVerified: d.dnssec.state === 'signed',
       nextCall: d.dnssec.state === 'signed'
         ? 'the record is in a signed zone and may be followed'

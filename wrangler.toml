@@ -5,9 +5,26 @@
 # `muretai.com/` is itself an A2A door — the MCP spec's rule is that a door and an MCP endpoint
 # never share a path. A hostname keeps them apart in a way nobody has to remember.
 #
-# Deploy:  wrangler deploy      (the Muretai Cloudflare account; zone muretai.com)
+# Deploy — THE ACCOUNT MATTERS. Deploying to the wrong Cloudflare account does not error in
+# an obvious way, it succeeds somewhere plausible; that has cost this project whole sessions.
+#
+#   cf web                       # activate the account that owns the muretai.com zone
+#   cd ~/agent-site-checker && wrangler deploy
+#
+# BEFORE THE FIRST DEPLOY: `check.muretai.com` needs a proxied DNS record on the zone (an
+# AAAA to 100:: is the conventional placeholder) or the route below matches nothing and the
+# hostname does not resolve — the Worker deploys clean and the service is simply unreachable.
+#
+# AND CHECK THE ZONE TOGGLE: Browser Integrity Check must stay OFF. An MCP client is not a
+# browser and BIC 403s exactly this traffic — muretai's own Agent Entry door was dark for
+# three days for that reason, and no test can see it.
 name = "agent-site-checker"
 main = "src/worker.mjs"
+# Pinned so wrangler never calls /memberships to find the account: that endpoint is
+# User-scoped, the deploy token is Account-scoped, and older wranglers fall back to it when
+# account_id is absent — failing with "Authentication failed (status: 400) [code: 9106]" on
+# an otherwise-valid token. The account is the deployer's; this file is public.
+account_id = "your-account-id"
 compatibility_date = "2026-07-01"
 # The verification code is @muretai/agent-entry, which uses node:crypto and Buffer for Ed25519.
 compatibility_flags = ["nodejs_compat"]
