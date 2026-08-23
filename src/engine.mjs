@@ -34,7 +34,9 @@ import { Report } from './report.mjs';
 import { dnsAid } from './dns.mjs';
 import { remediesFor } from './remedies.mjs';
 
-export const VERSION = '0.1.0';
+// Kept in step with package.json by hand — a checker that misreports which build
+// produced a verdict cannot be argued with, and every report prints this.
+export const VERSION = '0.1.1';
 
 /** What a visitor enforces before it will speak to a door: a signed card older than this is
  *  refused. Mirrors muretai's `Outbox.CARD_SIG_MAX_AGE`. It is the only check that can tell a

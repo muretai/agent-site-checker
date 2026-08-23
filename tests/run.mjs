@@ -474,6 +474,27 @@ section('13. the attacks a red-team found — each one run against the product')
   eq(page.headers.get('x-content-type-options'), 'nosniff', 'and nosniff');
 }
 
+// ------------------------------------------------ 14. the version a report prints is the truth
+section('14. the reported version cannot drift from the published one');
+{
+  // Every report, every MCP result and the discovery document carry a version, and the whole
+  // point of printing it is that a verdict can be traced to the build that produced it. The
+  // number lives in two files, so it can drift, so it is pinned here.
+  const { readFile } = await import('node:fs/promises');
+  const { VERSION } = await import('../src/engine.mjs');
+  const { SERVER_INFO } = await import('../src/mcp.mjs');
+  const { wellKnownMcp } = await import('../src/mcp.mjs');
+  const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+
+  eq(VERSION, pkg.version, 'the engine reports the version package.json publishes');
+  eq(SERVER_INFO.version, pkg.version, 'and so does the MCP serverInfo');
+  eq(wellKnownMcp('https://example.com').version, pkg.version,
+     'and so does the discovery document');
+
+  const r = await checkSite('http://127.0.0.1:1/', LOCAL);
+  eq(r.checker.version, pkg.version, 'and so does every report, including a failed one');
+}
+
 // ----------------------------------------------------------------
 console.log(`\n${'-'.repeat(60)}`);
 console.log(`${passed} passed, ${failures.length} failed`);
