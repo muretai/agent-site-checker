@@ -1,0 +1,466 @@
+/**
+ * src/page.mjs — the human surface.
+ *
+ * WHY THE RESULTS RENDER ON THE PAGE. Most of this category delivers findings by email, which
+ * is lead capture wearing a report's clothes. The brand rule here is the opposite — proof is
+ * the page — so the whole result is visible to anyone who pastes a URL, with no address asked
+ * for and nothing withheld behind a paid tier.
+ *
+ * WHY THERE IS NO NUMBER ANYWHERE. A single score cannot be argued with, only obeyed, and it
+ * hides which rubric produced it. Every line here names the URL that was fetched and what came
+ * back, so a reader who disagrees can go and look. `assertNoScore` in report.mjs is pointed at
+ * this file's output by the test suite for exactly that reason.
+ *
+ * The theme block is the canonical muretai paper palette, inlined verbatim
+ * (.claude/skills/muretai-page/assets/theme.css). Public pages are single-file HTML: no
+ * framework, no build step, no external stylesheet — which is also what keeps the CSP tight.
+ */
+
+const THEME_CSS = `/* muretai public "paper" theme — the canonical token block + base + components.
+ * Lifted verbatim from web/index.html (the muretai.com front page), which carries
+ * the owner ruling: "Paper palette — the art-light direction (owner, 2026-07-15):
+ * warm cream paper, deep-indigo ink (the birds), amber deepened for light-ground
+ * contrast."
+ *
+ * Paste into a page's inline <style>. Public pages are single-file static HTML —
+ * no framework, no build step, no external stylesheet.
+ * Do NOT rename tokens. Do NOT add a dark scheme (public pages are light-only).
+ */
+
+:root {
+  --bg:#f6f1e4; --bg2:#fbf7ec; --ink:#1d2547; --muted:#5d6488;
+  --line:#e2d9c4; --panel2:#f0e9d8; --accent:#0f8a63; --teal:#177f76;
+  --good:#1e7d57; --warn:#a86e12; --bad:#b04a5e;
+  /* the PAGE spacing scale (8px base). Not the dashboard's 4px --sN scale. */
+  --s1:8px; --s2:16px; --s3:24px; --s4:32px; --s5:40px; --s6:48px; --s7:64px; --s8:96px;
+  --measure:34em;                        /* reading width for prose blocks */
+  --col:min(520px, 100% - var(--s4));    /* single-column form width */
+  --page:1080px;                         /* desktop container cap */
+  --shadow:0 1px 2px rgba(63,52,24,.08), 0 14px 34px rgba(63,52,24,.10);
+  --shadow-hi:0 2px 6px rgba(63,52,24,.10), 0 22px 50px rgba(63,52,24,.16);
+  --radius:16px;
+  --serif:ui-serif,"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+
+* { box-sizing:border-box; }
+html { scroll-behavior:smooth; background:var(--bg); }
+html, body { margin:0; min-height:100%; overflow-x:hidden; overflow-x:clip; }
+body {
+  /* the ground is not flat: a warm dome + an emerald bloom over the cream */
+  background:
+    radial-gradient(1100px 620px at 50% -10%, #efe7d2 0%, rgba(246,241,228,0) 60%),
+    radial-gradient(900px 700px at 84% 8%, rgba(15,138,99,.07) 0%, rgba(246,241,228,0) 55%),
+    var(--bg);
+  color:var(--ink); min-height:100dvh;
+  font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+a { color:var(--accent); text-decoration:none; }
+a:hover { text-decoration:underline; }
+:where(a, button, input, summary, [role="tab"]):focus-visible {
+  outline:2px solid var(--accent); outline-offset:2px; border-radius:8px;
+}
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior:auto; } }
+
+/* ---------------------------------------------------------------- layout */
+.wrap   { width:100%; max-width:var(--page); margin:0 auto; padding:0 var(--s3); }
+.column { width:100%; max-width:var(--col); margin-inline:auto; }
+section.band { padding:var(--s7) 0 0; scroll-margin-top:72px; }
+
+/* ------------------------------------------------------------ typography */
+h1, h2, h3 { text-wrap:balance; }
+.hero h1 {
+  font-size:clamp(40px,10vw,56px); font-weight:800; letter-spacing:-1px;
+  line-height:1.0; margin:0;
+}
+.tag {                                   /* the brand line under an H1 — SERIF */
+  font-family:var(--serif); font-weight:500;
+  font-size:clamp(21px,4.6vw,28px); letter-spacing:-.3px;
+  margin:var(--s2) 0 0; text-wrap:balance;
+}
+.lede {
+  color:var(--muted); font-size:16px; line-height:1.55;
+  margin:var(--s2) auto 0; max-width:var(--measure); text-wrap:balance;
+}
+.sec-head .eyebrow {
+  font-size:12px; text-transform:uppercase; letter-spacing:.14em;
+  color:var(--accent); font-weight:700; margin:0 0 var(--s1);
+}
+.sec-head h2 {                           /* section heads are the brand voice */
+  font-family:var(--serif); font-weight:500; letter-spacing:-.4px;
+  font-size:clamp(24px,4.6vw,32px); line-height:1.12; margin:0;
+}
+.sec-head .sub {
+  color:var(--muted); font-size:15px; line-height:1.55;
+  margin:var(--s2) auto 0; max-width:var(--measure); text-wrap:balance;
+}
+.hint { color:var(--muted); font-size:12.5px; line-height:1.55; }
+
+/* ------------------------------------------------------------ components */
+.card, .panel {
+  background:var(--bg2); border:1px solid var(--line); border-radius:var(--radius);
+  padding:var(--s3); box-shadow:var(--shadow);
+}
+.card { display:flex; flex-direction:column; align-items:flex-start; gap:var(--s1); }
+.card h3 { font-size:16px; font-weight:700; letter-spacing:-.2px; margin:0; }
+.card p  { font-size:14px; line-height:1.55; color:var(--muted); margin:0;
+           text-wrap:pretty; }
+
+.btn {
+  font:inherit; font-weight:700; text-decoration:none; border-radius:999px;
+  padding:13px 24px; color:#fdf8ee; background:var(--accent); display:inline-block;
+}
+.btn:hover { text-decoration:none; }
+.btn:active { transform:translateY(1px); }
+.btn.ghost { background:transparent; border:1px solid var(--accent);
+             color:var(--accent); font-weight:600; }
+
+button {
+  font:inherit; border:0; border-radius:12px; padding:13px 16px; font-weight:700;
+  color:#fdf8ee; background:var(--accent); cursor:pointer;
+}
+button.ghost { background:var(--panel2); border:1px solid var(--line);
+               color:var(--ink); font-weight:600; }
+
+input, textarea {
+  font:inherit; color:var(--ink); background:var(--panel2);
+  border:1px solid var(--line); border-radius:12px; padding:13px; width:100%;
+}
+input::placeholder, textarea::placeholder { color:#a49a80; }
+
+/* the status vocabulary: signed · vouched · held · revoked */
+.chip {
+  display:inline-flex; align-items:center; gap:6px; font:12px/1 var(--mono);
+  color:var(--muted); border:1px solid var(--line); border-radius:999px;
+  padding:5px 10px;
+}
+.chip::before { content:""; width:7px; height:7px; border-radius:50%;
+                background:var(--muted); }
+.chip.good::before { background:var(--good); }
+.chip.warn::before { background:var(--warn); }
+.chip.bad::before  { background:var(--bad); }
+.chip.dim::before  { background:var(--line); }
+
+.cmd code {
+  display:block; font:13px/1.5 var(--mono); color:var(--ink);
+  background:var(--panel2); border:1px solid var(--line); border-radius:12px;
+  padding:13px var(--s2); overflow-x:auto; user-select:all;
+}
+pre {
+  font:13px/1.5 var(--mono); color:var(--ink); background:var(--panel2);
+  border:1px solid var(--line); border-radius:12px; padding:13px var(--s2);
+  overflow-x:auto; margin:0;
+}
+code { font:12.5px/1.4 var(--mono); background:var(--panel2);
+       border:1px solid var(--line); border-radius:6px; padding:1px 5px; }
+pre code, .cmd code { border:0; padding:0; background:none; }
+
+table { width:100%; border-collapse:collapse; font-size:13px; }
+th { color:var(--muted); font-weight:600; text-align:left; padding:var(--s1);
+     border-bottom:1px solid var(--line); }
+td { padding:10px var(--s1); border-bottom:1px solid var(--line);
+     font-variant-numeric:tabular-nums; }
+tr.row:hover { background:var(--panel2); }
+
+details {
+  background:var(--bg2); border:1px solid var(--line); border-radius:12px;
+  padding:var(--s2); margin:var(--s1) 0;
+}
+summary { cursor:pointer; font-weight:600; list-style:none; }
+summary::-webkit-details-marker { display:none; }
+summary::after { content:" +"; color:var(--accent); font-weight:700; }
+details[open] summary::after { content:" –"; }
+
+footer {
+  margin-top:var(--s7); padding:var(--s4) 0; border-top:1px solid var(--line);
+  color:var(--muted); font-size:13px;
+}
+footer h4 { font-size:12px; text-transform:uppercase; letter-spacing:.12em;
+            color:var(--ink); margin:0 0 var(--s1); }
+
+/* the 群れたい motif — the only non-ASCII copy allowed */
+.jp { font-family:ui-serif,"Hiragino Mincho ProN","Yu Mincho",serif; }`;
+
+const esc = (s) => String(s == null ? '' : s)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+export function renderPage(prefill = '') {
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f6f1e4">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="muretai">
+
+<title>muretai — Agent Site Checker</title>
+<meta name="description" content="Paste a website. See what it offers an AI agent, and which parts are actually verified: the signature on its agent card, the key's claim on the origin, how recently it was signed, and whether its discovery records are in a signed DNS zone.">
+<meta name="robots" content="index,follow">
+<link rel="canonical" href="https://check.muretai.com/">
+
+<link rel="icon" href="https://muretai.com/favicon.ico" sizes="32x32">
+<link rel="icon" href="https://muretai.com/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="https://muretai.com/apple-touch-icon.png">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="muretai">
+<meta property="og:url" content="https://check.muretai.com/">
+<meta property="og:title" content="muretai — Agent Site Checker">
+<meta property="og:description" content="See what a website offers an AI agent — and which parts are verified rather than merely present.">
+<meta property="og:image" content="https://muretai.com/og-card.png">
+<meta property="og:image:alt" content="muretai — Agent Site Checker">
+<meta property="og:locale" content="en_US">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="muretai — Agent Site Checker">
+<meta name="twitter:description" content="See what a website offers an AI agent — and which parts are verified rather than merely present.">
+<meta name="twitter:image" content="https://muretai.com/og-card.png">
+
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-13KZ2RE7K9"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-13KZ2RE7K9');
+</script>
+<style>
+${THEME_CSS}
+
+/* ---- page-local: the result surface, built from the same tokens ---- */
+.hero { padding:var(--s7) 0 0; text-align:center; }
+form.ask { display:flex; gap:var(--s1); margin:var(--s4) auto 0; max-width:var(--col); }
+form.ask input { flex:1; }
+.verdict { margin-top:var(--s4); }
+.verdict p { font-family:var(--serif); font-weight:500; font-size:clamp(18px,3.4vw,22px);
+             line-height:1.35; margin:0; text-wrap:pretty; }
+.grid { display:grid; gap:var(--s2); grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
+        margin-top:var(--s3); }
+.kv { display:flex; justify-content:space-between; gap:var(--s2); padding:10px 0;
+      border-bottom:1px solid var(--line); font-size:14px; align-items:flex-start; }
+.kv:last-child { border-bottom:0; }
+.kv .k { color:var(--muted); }
+.kv .v { text-align:right; font-family:var(--mono); font-size:12.5px; word-break:break-all; }
+.rows { margin-top:var(--s2); }
+.rows li { list-style:none; padding:8px 0; border-bottom:1px solid var(--line);
+           font-size:13.5px; display:flex; gap:var(--s1); align-items:baseline; }
+.rows ul { margin:0; padding:0; }
+.rows .lv { font:11px/1 var(--mono); text-transform:uppercase; letter-spacing:.08em;
+            padding-top:3px; min-width:42px; }
+.lv.PASS { color:var(--good); } .lv.FAIL { color:var(--bad); }
+.lv.WARN { color:var(--warn); } .lv.INFO { color:var(--muted); }
+.rows .dt { color:var(--muted); display:block; font-size:12.5px; margin-top:2px; }
+.spin { color:var(--muted); font-size:14px; margin-top:var(--s3); }
+@media (max-width:520px) { form.ask { flex-direction:column; } }
+</style>
+</head>
+<body>
+<main class="wrap">
+
+  <header class="hero">
+    <p class="eyebrow" style="font-size:12px;text-transform:uppercase;letter-spacing:.14em;color:var(--accent);font-weight:700;margin:0 0 var(--s1)">Agent Site Checker</p>
+    <h1>Present is not the same as real.</h1>
+    <p class="tag">Anyone can serve a file that says who they are. Far fewer can sign it.</p>
+    <p class="lede">Paste a website. You will see what it offers an AI agent — and, for the parts
+      that carry a key, whether the signature verifies, whether that key speaks for this origin
+      or was copied from another one, how long ago it was signed, and whether its DNS discovery
+      records sit in a signed zone. Everything else is listed as a plain fact. No number, no
+      grade, no email.</p>
+
+    <form class="ask" id="ask">
+      <input id="url" name="url" type="text" inputmode="url" autocomplete="url"
+             placeholder="example.com" value="${esc(prefill)}" aria-label="Website to check">
+      <button type="submit">Check</button>
+    </form>
+    <p class="hint" style="margin-top:var(--s1)">Read-only. One knock is sent to the door a site
+      itself advertises, and it is refused by design.</p>
+  </header>
+
+  <section id="out" hidden></section>
+
+  <section class="band">
+    <div class="sec-head">
+      <p class="eyebrow">For agents</p>
+      <h2>The same check, over MCP.</h2>
+      <p class="sub">If you were handed a URL mid-task, you do not need this page. Two read-only
+        tools, no key, no session: <code>check_site</code> and <code>verify_agent_card</code>.</p>
+    </div>
+    <div class="cmd" style="margin-top:var(--s3)">
+      <code>claude mcp add --transport http agent-site-checker https://check.muretai.com/mcp</code>
+    </div>
+    <p class="hint" style="margin-top:var(--s1)">Discovery document:
+      <a href="/.well-known/mcp.json">/.well-known/mcp.json</a> · JSON for one URL:
+      <a href="/api/check?url=muretai.com">/api/check?url=…</a></p>
+  </section>
+
+  <section class="band">
+    <div class="sec-head">
+      <p class="eyebrow">What this is not</p>
+      <h2>It does not count your surfaces.</h2>
+      <p class="sub">Several tools already scan a site for the two dozen agent-facing standards
+        and rate how many are present — Cloudflare's
+        <a href="https://isitagentready.com/" rel="noopener">isitagentready.com</a> is the
+        thorough one, and it is free. Use it for that. This checker asks the question those
+        leave open: of the things that are present, which ones can be proven?</p>
+    </div>
+    <div class="grid">
+      <article class="card">
+        <span class="chip good">signature</span>
+        <h3>The card is signed, and it verifies.</h3>
+        <p>An agent card is a JSON file at a well-known path — anyone can serve one naming any
+          key. The signed envelope beside it either checks out under that key or it does not.</p>
+      </article>
+      <article class="card">
+        <span class="chip good">origin</span>
+        <h3>The key speaks for this site.</h3>
+        <p>A card copied from another website still carries a perfectly valid signature. What
+          gives it away is the endpoint inside it, pointing somewhere else.</p>
+      </article>
+      <article class="card">
+        <span class="chip warn">freshness</span>
+        <h3>Something is alive behind it.</h3>
+        <p>A live door re-signs its card on a timer. One signed months ago and left there is a
+          file, not a service, and a visitor is entitled to refuse it.</p>
+      </article>
+      <article class="card">
+        <span class="chip warn">dns</span>
+        <h3>The DNS records are in a signed zone.</h3>
+        <p>DNS-AID publishes agent endpoints as SVCB records. Its own draft says a visitor must
+          not act on them unless the zone is DNSSEC-signed — so we report both.</p>
+      </article>
+      <article class="card">
+        <span class="chip dim">who answered</span>
+        <h3>The door replied — not the edge.</h3>
+        <p>A proxy in front of a door can return bytes identical to the door's own refusal. When
+          we cannot tell which one spoke, we say so instead of guessing.</p>
+      </article>
+      <article class="card">
+        <span class="chip dim">no score</span>
+        <h3>Every line names its URL.</h3>
+        <p>You get what was fetched and what came back. A single number would hide whose rubric
+          produced it, and there is no arguing with a number.</p>
+      </article>
+    </div>
+  </section>
+
+  <footer>
+    <div class="grid">
+      <div>
+        <h4>muretai</h4>
+        <p style="margin:0">A network where an agent has its own address, gets introduced, and
+          knows who it is talking to. <a href="https://muretai.com/">muretai.com</a></p>
+      </div>
+      <div>
+        <h4>Open</h4>
+        <p style="margin:0">The checks run on the published
+          <code>@muretai/agent-entry</code> library. Same code, same answers.</p>
+      </div>
+      <div>
+        <h4>Contact</h4>
+        <p style="margin:0">muretaicom@gmail.com</p>
+      </div>
+    </div>
+    <p style="margin-top:var(--s3)" class="jp">群れたい</p>
+  </footer>
+</main>
+
+<script>
+const out = document.getElementById('out');
+const form = document.getElementById('ask');
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => (
+  {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+const CHIP = { verified:'good', proven:'good', fresh:'good', signed:'good',
+               'door-answered':'good',
+               invalid:'bad', mismatch:'bad', stale:'warn', bogus:'bad',
+               absent:'warn', unproven:'warn', unsigned:'warn', unknown:'dim',
+               'not-probed':'dim' };
+
+function kv(k, state, detail) {
+  const chip = CHIP[state] || 'dim';
+  return '<div class="kv"><span class="k">' + esc(k) +
+    '<span class="dt" style="display:block">' + esc(detail || '') + '</span></span>' +
+    '<span class="v"><span class="chip ' + chip + '">' + esc(state) + '</span></span></div>';
+}
+
+function render(r) {
+  if (r.refused) {
+    return '<div class="panel"><p>' + esc(r.refused) + '</p></div>';
+  }
+  const v = r.verification || {};
+  let h = '<div class="verdict panel"><p>' + esc(r.verdict) + '</p>' +
+    '<p class="hint" style="margin-top:var(--s2)">' + esc(r.target.finalUrl || r.target.url) +
+    ' · checked ' + esc(r.checker.checkedAt) + ' · ' + esc(r.checker.name) + ' ' +
+    esc(r.checker.version) + '</p></div>';
+
+  if (r.reachable) {
+    h += '<div class="grid"><div class="panel">' +
+      '<h3 style="margin:0 0 var(--s1);font-size:16px">Verified, or not</h3>';
+    if (v.card && v.card.present) {
+      h += kv('agent card', 'present', v.card.did || '');
+      h += kv('signature', (v.signature||{}).state, (v.signature||{}).detail);
+      h += kv('origin binding', (v.originBinding||{}).state, (v.originBinding||{}).detail);
+      h += kv('freshness', (v.freshness||{}).state, (v.freshness||{}).detail);
+      if (v.door && v.door.advertised) h += kv('who answered', v.door.reached, v.door.detail);
+    } else {
+      h += '<p class="hint">No A2A agent card at the well-known path, so there is nothing here '
+         + 'to verify. That is a fact about this site, not a fault.</p>';
+    }
+    const d = r.dnsAid || {};
+    h += kv('DNS zone', (d.dnssec||{}).state, (d.dnssec||{}).detail);
+    h += kv('DNS-AID records', d.found ? 'present' : 'absent',
+            d.found ? d.records.map(x => x.label + ' -> ' + x.target).join(', ')
+                    : 'nothing under _agents.' + (d.domain || ''));
+    h += '</div>';
+
+    h += '<div class="panel"><h3 style="margin:0 0 var(--s1);font-size:16px">Also published</h3>' +
+      '<p class="hint" style="margin:0 0 var(--s1)">Reported as facts. Not graded, not counted.</p>';
+    for (const f of (r.facts || [])) {
+      h += '<div class="kv"><span class="k">' + esc(f.surface) +
+        '<span class="dt">' + esc(f.detail || f.url) + '</span></span>' +
+        '<span class="v"><span class="chip ' + (f.present ? 'good' : 'dim') + '">' +
+        (f.present ? 'present' : 'absent') + '</span></span></div>';
+    }
+    h += '</div></div>';
+
+    h += '<details style="margin-top:var(--s3)"><summary>Every check, in order</summary>' +
+      '<div class="rows"><ul>';
+    for (const row of (r.rows || [])) {
+      h += '<li><span class="lv ' + esc(row.level) + '">' + esc(row.level) + '</span>' +
+        '<span>' + esc(row.label) +
+        (row.detail ? '<span class="dt">' + esc(row.detail) + '</span>' : '') + '</span></li>';
+    }
+    h += '</ul></div></details>';
+  }
+  return h;
+}
+
+async function run(target) {
+  out.hidden = false;
+  out.innerHTML = '<p class="spin">Fetching ' + esc(target) +
+    ' and checking what it publishes…</p>';
+  try {
+    const res = await fetch('/api/check?url=' + encodeURIComponent(target));
+    const data = await res.json();
+    out.innerHTML = render(data);
+  } catch (e) {
+    out.innerHTML = '<div class="panel"><p>The check could not complete: ' +
+      esc(e.message) + '</p></div>';
+  }
+}
+
+form.addEventListener('submit', (e) => {
+  e.preventDefault();
+  const t = document.getElementById('url').value.trim();
+  if (!t) return;
+  history.replaceState(null, '', '/?url=' + encodeURIComponent(t));
+  run(t);
+});
+
+const pre = new URLSearchParams(location.search).get('url');
+if (pre) run(pre);
+</script>
+</body>
+</html>`;
+}

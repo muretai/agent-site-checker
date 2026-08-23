@@ -1,0 +1,21 @@
+{
+  "name": "@muretai/agent-site-checker",
+  "version": "0.1.0",
+  "description": "Verify what a website tells AI agents: follow the DNS and HTTP signposts, then check whether what is at the end is real — the agent card's signature, the DID's claim on the origin, and whether anything reached the door at all.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Muretai",
+  "engines": { "node": ">=20" },
+  "bin": { "agent-site-checker": "./bin/agent-site-checker.mjs" },
+  "exports": { ".": "./src/engine.mjs" },
+  "files": ["src/", "bin/", "README.md", "LICENSE"],
+  "scripts": {
+    "test": "node tests/run.mjs",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@muretai/agent-entry": "1.7.1"
+  },
+  "keywords": ["ai-agent","agent-readiness","a2a","agent-card","did","ed25519","mcp","dns-aid","llms-txt","webmcp","verification"]
+}

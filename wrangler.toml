@@ -1,0 +1,24 @@
+# Agent Site Checker — check.muretai.com
+#
+# A SUBDOMAIN, NOT A PATH ON THE APEX, and both halves of that are deliberate. muretai.com's
+# route table has taken production down twice by claiming a prefix the relay also owned, and
+# `muretai.com/` is itself an A2A door — the MCP spec's rule is that a door and an MCP endpoint
+# never share a path. A hostname keeps them apart in a way nobody has to remember.
+#
+# Deploy:  wrangler deploy      (the Muretai Cloudflare account; zone muretai.com)
+name = "agent-site-checker"
+main = "src/worker.mjs"
+compatibility_date = "2026-07-01"
+# The verification code is @muretai/agent-entry, which uses node:crypto and Buffer for Ed25519.
+compatibility_flags = ["nodejs_compat"]
+
+routes = [
+  { pattern = "check.muretai.com/*", zone_name = "muretai.com" },
+]
+
+# Optional. The service works without it; with it, one address cannot spend the whole budget.
+# [[unsafe.bindings]]
+# name = "RATE_LIMITER"
+# type = "ratelimit"
+# namespace_id = "1001"
+# simple = { limit = 60, period = 60 }
