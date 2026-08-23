@@ -140,6 +140,10 @@ export default {
       }
       const probeDoor = url.searchParams.get('probe') !== '0';
       const { result, cached } = await cachedCheck(target, { probeDoor }, ctx);
+      // A refused URL is the CALLER's mistake, so it answers 400. Handing back 200 with a
+      // `refused` field buried in the body means a CI job that only reads the status treats a
+      // typo as a clean run.
+      if (result.refused) return json(result, 400);
       return json(result, 200, {
         'Cache-Control': `public, max-age=${CACHE_TTL_S}`,
         'X-Result-Cached': cached ? '1' : '0',
