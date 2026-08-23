@@ -22,6 +22,37 @@ A JSON file at a well-known path is a claim. A signature that verifies under the
 file names, from a key that provably speaks for this origin, re-signed within the last six
 hours, is a fact.
 
+### Why that difference is worth anything
+
+**A copy of a real card scores exactly the same as the real one.** An agent card is a file at
+a known path. Nothing stops someone serving a copy of a well-known company's card on a domain
+of their own — same name, same key, same everything. Every presence checker gives both a tick.
+Whether the signature holds, and whether the key it names actually speaks for the domain you
+are standing on, is the only thing that tells them apart. A checker that ticks the impostor is
+worse than no checker, because it was believed.
+
+**It is what lets an agent get on with it instead of stopping to ask.** The reason to have
+agents at all is that they do not need supervising. If all you know is that a file exists, a
+person has to look at the site and decide whether it is really them — every time, before
+anything that costs money or sends data. A thing that verifies is a thing an agent can settle
+by itself, which is the difference between an errand you delegate and one you watch.
+
+**Fresh answers a question nobody thinks to ask: is anyone home?** A card signed eight months
+ago and left there parses perfectly and looks completely fine. It means the site announced
+agent support once and nothing has run since — you would be posting into a mailbox no one
+empties. A live door re-signs on a timer, so the age of a signature is the cheapest way to
+tell a service from a leftover, and no amount of presence checking gets near it.
+
+**Afterwards, both sides have something to point at.** When the exchange is signed, what was
+said is attributable to a key instead of to an endpoint that answered once. If an order goes
+wrong there is something to show. Between two anonymous HTTP endpoints, nobody is holding
+anything.
+
+And it runs the other way for whoever owns the site: this is the check that makes you hard to
+impersonate. Publishing a card tells agents you exist. Signing it, from a key tied to your own
+domain and re-signed while you are still running, is what stops the next domain along from
+being you.
+
 ## The three layers
 
 **DNS.** Resolve DNS-AID records (`_index._agents.<domain>`, `_a2a._agents.…`,

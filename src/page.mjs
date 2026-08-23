@@ -331,6 +331,53 @@ form.ask input { flex:1; }
 
   <section class="band">
     <div class="sec-head">
+      <p class="eyebrow">Why it matters</p>
+      <h2>Present is cheap. Proven is what you can act on.</h2>
+      <p class="sub">Not "it is safer" — that is true of everything and tells you nothing. Here
+        is what actually changes.</p>
+    </div>
+    <div class="grid">
+      <article class="card">
+        <h3>A copy scores the same as the original.</h3>
+        <p>An agent card is a file at a known path. Nothing stops someone serving a copy of a
+          well-known company's card on a domain of their own — same name, same key, same
+          everything. Every presence checker ticks both. Whether the signature holds, and
+          whether the key it names speaks for the domain you are standing on, is the only thing
+          that tells them apart. A checker that ticks the impostor is worse than none, because
+          it was believed.</p>
+      </article>
+      <article class="card">
+        <h3>An agent can settle it without asking you.</h3>
+        <p>The reason to have agents is that they do not need supervising. If all you know is
+          that a file exists, a person has to look at the site and decide whether it is really
+          them — every time, before anything that costs money or sends data. Something that
+          verifies is something an agent can decide by itself. That is the difference between
+          an errand you delegate and one you watch.</p>
+      </article>
+      <article class="card">
+        <h3>Fresh tells you whether anyone is home.</h3>
+        <p>A card signed eight months ago and left there parses perfectly and looks completely
+          fine. It means the site announced agent support once and nothing has run since — you
+          would be posting into a mailbox no one empties. A live door re-signs on a timer, so
+          the age of a signature separates a service from a leftover. No amount of presence
+          checking gets near that.</p>
+      </article>
+      <article class="card">
+        <h3>Afterwards, both sides can point at something.</h3>
+        <p>When the exchange is signed, what was said belongs to a key rather than to an
+          endpoint that answered once. If an order goes wrong there is something to show.
+          Between two anonymous endpoints, nobody is holding anything.</p>
+      </article>
+    </div>
+    <p class="hint" style="margin-top:var(--s3);max-width:var(--measure)">If you run the site,
+      it reads the other way round: this is the check that makes you hard to impersonate.
+      Publishing a card tells agents you exist. Signing it, from a key tied to your own domain
+      and re-signed while you are still running, is what stops the next domain along from being
+      you.</p>
+  </section>
+
+  <section class="band">
+    <div class="sec-head">
       <p class="eyebrow">For agents</p>
       <h2>The same check, over MCP.</h2>
       <p class="sub">If you were handed a URL mid-task, you do not need this page. One endpoint,
