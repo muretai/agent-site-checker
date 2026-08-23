@@ -1,11 +1,11 @@
 /**
  * src/report.mjs — PASS / FAIL / WARN / INFO, and nothing that adds up to a number.
  *
- * WHY THIS SHAPE. It is the report contract of muretai's own conformance tooling,
- * reused deliberately rather than reinvented: only FAIL sets the exit status, WARN is an
- * advisory that never fails a run, INFO is context a reader needs to judge the rest. The
- * verdict a human reads and the status a CI job reads are the same object, so they cannot
- * drift apart.
+ * WHY THIS SHAPE. It is the report contract muretai's own conformance tooling has used since
+ * the first Agent Entry door, reused deliberately rather than reinvented: only FAIL sets the
+ * exit status, WARN is an advisory that never fails a run, INFO is context a reader needs to
+ * judge the rest. The verdict a human reads and the status a CI job reads are the same object,
+ * so they cannot drift apart.
  *
  * WHY THERE IS NO SCORE, AND WHY THAT IS ENFORCED HERE. A competitor's scanner rated
  * muretai.com 22/100 by aggregating checks that did not apply to it, and Cloudflare's rates

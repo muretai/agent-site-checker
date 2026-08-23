@@ -8,8 +8,7 @@
 # Deploy — THE ACCOUNT MATTERS. Deploying to the wrong Cloudflare account does not error in
 # an obvious way, it succeeds somewhere plausible; that has cost this project whole sessions.
 #
-#   cf web                       # activate the account that owns the muretai.com zone
-#   cd ~/agent-site-checker && wrangler deploy
+#   wrangler deploy              # with the account that owns the zone activated
 #
 # BEFORE THE FIRST DEPLOY: `check.muretai.com` needs a proxied DNS record on the zone (an
 # AAAA to 100:: is the conventional placeholder) or the route below matches nothing and the
@@ -20,11 +19,12 @@
 # three days for that reason, and no test can see it.
 name = "agent-site-checker"
 main = "src/worker.mjs"
-# Pinned so wrangler never calls /memberships to find the account: that endpoint is
-# User-scoped, the deploy token is Account-scoped, and older wranglers fall back to it when
-# account_id is absent — failing with "Authentication failed (status: 400) [code: 9106]" on
-# an otherwise-valid token. The account is the deployer's; this file is public.
-account_id = "your-account-id"
+# PIN YOUR ACCOUNT ID HERE (or set CLOUDFLARE_ACCOUNT_ID in the environment). Without it,
+# wrangler falls back to calling /memberships to work out which account you mean — that
+# endpoint is User-scoped while a deploy token is Account-scoped, so an otherwise-valid token
+# fails with "Authentication failed (status: 400) [code: 9106]" and the message names neither
+# cause. Left unset here on purpose: this file is public, and the account is the deployer's.
+# account_id = "your-account-id"
 compatibility_date = "2026-07-01"
 # nodejs_compat: the verification code is @muretai/agent-entry, which uses node:crypto and
 # Buffer for Ed25519.
