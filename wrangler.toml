@@ -26,8 +26,22 @@ main = "src/worker.mjs"
 # an otherwise-valid token. The account is the deployer's; this file is public.
 account_id = "your-account-id"
 compatibility_date = "2026-07-01"
-# The verification code is @muretai/agent-entry, which uses node:crypto and Buffer for Ed25519.
-compatibility_flags = ["nodejs_compat"]
+# nodejs_compat: the verification code is @muretai/agent-entry, which uses node:crypto and
+# Buffer for Ed25519.
+#
+# global_fetch_strictly_public IS LOAD-BEARING AND MUST NEVER BE REMOVED. Without it, a
+# Worker's subrequest to a hostname on its OWN zone is routed straight to the zone's origin
+# server — "ignoring any Workers mapped to the URL and also bypassing Cloudflare security
+# settings" (Cloudflare's own words). Measured on the first live deploy, 2026-08-23: this
+# service, hosted on the muretai.com zone, fetched https://muretai.com/ and reached the Fly
+# relay behind it instead of the public site. The relay serves a minimal landing at / and 404s
+# the rest, so the checker reported OUR OWN flagship site as having no agent card, no llms.txt,
+# no robots.txt and no door — while every external site it checked was fine.
+#
+# That is this product'"'"'s own thesis turned on itself: the thing that answered was not the thing
+# a visitor would have asked. A checker MUST reach its target the way the public reaches it, and
+# on Cloudflare that takes this flag.
+compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
 
 routes = [
   { pattern = "check.muretai.com/*", zone_name = "muretai.com" },
