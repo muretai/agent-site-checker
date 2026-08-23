@@ -317,6 +317,40 @@ section('10. the install instructions belong to no single client');
      `${(page.match(/claude/gi) || []).length} mentions`);
 }
 
+// ------------------------------------ 11. what we check is a decision, not an accumulation
+section('11. the surface list is pinned: only what is standardised, or credibly heading there');
+{
+  // Probing for a format IS a statement that it matters — it costs a subrequest, it puts a row
+  // in front of every reader, and it tells that format's author a checker now tracks them. So
+  // the list is pinned here: adding one has to be a deliberate edit to this test, with the
+  // admission rule in engine.mjs read first.
+  const EXPECTED = [
+    'llms.txt',                  // de facto, broad adoption
+    'robots.txt',                // RFC 9309
+    'sitemap.xml',               // sitemaps.org, universal
+    'agents.md',                 // multi-vendor convention
+    'mcp discovery',             // MCP, live ecosystem
+    'mcp server card',           // MCP draft
+    'agent skills index',        // MCP-adjacent draft, more than one implementer
+    'api catalog',               // RFC 9727 (+ RFC 9264)
+    'web bot auth directory',    // IETF draft over RFC 9421
+    'markdown negotiation',      // RFC 9110 content negotiation
+    'Permissions-Policy: tools', // WebMCP, W3C community group
+  ];
+  const site = await bareSite();
+  const r = await checkSite(site.origin, LOCAL);
+  const got = r.facts.map((f) => f.surface);
+  eq(JSON.stringify(got), JSON.stringify(EXPECTED),
+     'the checked surfaces are exactly the pinned list');
+
+  // The two that were removed under the rule, named so they cannot return by reflex: one is a
+  // six-week-old single-author draft, the other the superseded 2023 plugin manifest.
+  for (const gone of ['ai2w', 'ai-plugin.json']) {
+    ok(!got.includes(gone), `${gone} is not checked — it is not standardised, nor heading there`);
+  }
+  await site.close();
+}
+
 // ----------------------------------------------------------------
 console.log(`\n${'-'.repeat(60)}`);
 console.log(`${passed} passed, ${failures.length} failed`);

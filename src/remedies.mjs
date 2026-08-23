@@ -429,12 +429,18 @@ export const REMEDIES = {
   },
 };
 
-/** Surfaces we deliberately offer no prompt for, and why. Shown rather than hidden: a reader
- *  who sees a check with no remedy deserves to know it was a decision. */
-export const NO_REMEDY = {
-  'ai-plugin.json': 'the 2023-era plugin manifest — superseded, and not worth adding to a new site',
-  ai2w: 'a young single-author draft; each format published is a deliberate decision, not a default',
-};
+/**
+ * Surfaces that are CHECKED but for which no prompt is offered, and why. Kept as an explicit
+ * table rather than an omission: a reader who meets a check with no remedy deserves to know it
+ * was a decision.
+ *
+ * Empty today, and that is the healthy state. Two entries lived here — the 2023 plugin manifest
+ * and a six-week-old single-author draft — until the owner ruled that a format not standardised
+ * or credibly heading there should not be CHECKED at all (see FACT_SURFACES in engine.mjs). A
+ * surface that does not deserve a prompt usually does not deserve a row either; this table is
+ * for the rare case where it genuinely does.
+ */
+export const NO_REMEDY = {};
 
 /**
  * Build the actionable list for one result. Order is deliberate: everything BROKEN first,

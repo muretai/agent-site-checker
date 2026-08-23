@@ -41,7 +41,27 @@ export const VERSION = '0.1.0';
  *  live re-signing process from a JSON file somebody pasted and forgot. */
 export const CARD_SIG_MAX_AGE_S = 6 * 3600;
 
-/** Read-only surfaces worth REPORTING, never scoring. Each is one GET. */
+/**
+ * Read-only surfaces worth REPORTING, never scoring. Each is one GET.
+ *
+ * WHAT EARNS A ROW HERE (owner rule, 2026-08-23): the surface must be STANDARDISED, or
+ * credibly heading there — an RFC, a live IETF/W3C draft with more than one implementer, or a
+ * convention with real multi-vendor adoption. Nothing else.
+ *
+ * This is principle 8's logic applied to CHECKING rather than to emitting, and the two are the
+ * same question. muretai already decided it would not publish a thin /ai2w pointer because the
+ * format was a six-week-old single-author draft, and then this checker probed for it anyway,
+ * because an earlier note had asked for foreign formats to be detected as facts. That note was
+ * written against a different failure — being blind to a format that exists — and it does not
+ * settle which formats deserve a row. Probing for one IS a statement that it matters: it costs
+ * a subrequest, it puts a line in front of every reader, and it tells the format's author that
+ * a checker now tracks them. So each entry below is a deliberate decision, revisited on real
+ * traction, exactly like each format we serve.
+ *
+ * REMOVED under this rule, recorded so they are not re-added by reflex:
+ *   /.well-known/ai2w         a six-week-old draft, one author, two stars on its spec repo
+ *   /.well-known/ai-plugin.json  the 2023 plugin manifest — superseded and not coming back
+ */
 const FACT_SURFACES = [
   ['llms.txt', '/llms.txt', 'the plain-language brief written for language models'],
   ['robots.txt', '/robots.txt', 'crawler policy, AI-bot rules and Content-Signal'],
@@ -53,8 +73,6 @@ const FACT_SURFACES = [
   ['api catalog', '/.well-known/api-catalog', 'RFC 9727 linkset of APIs'],
   ['web bot auth directory', '/.well-known/http-message-signatures-directory',
    'the keys this site\'s own outbound agents sign with'],
-  ['ai-plugin.json', '/.well-known/ai-plugin.json', 'the 2023-era plugin manifest'],
-  ['ai2w', '/.well-known/ai2w', 'the AI2Web manifest'],
 ];
 
 const j = (s) => { try { return JSON.parse(s); } catch { return null; } };
