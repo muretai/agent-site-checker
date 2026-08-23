@@ -2,3 +2,13 @@ node_modules/
 .wrangler/
 *.log
 *.tgz
+
+# WHERE SECRETS ACTUALLY LIVE IN A WORKERS PROJECT. wrangler.toml is deliberately NOT ignored:
+# after the account id came out of it, it holds nothing private and it carries the one setting
+# nobody may lose — global_fetch_strictly_public, without which this Worker reaches past the
+# edge of its own zone and reports our own site as having no agent card. A config ignored is a
+# lesson that lives on one laptop. Secrets go in these files instead, and never in the toml.
+.dev.vars
+.dev.vars.*
+.env
+.env.*
