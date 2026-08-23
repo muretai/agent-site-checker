@@ -84,6 +84,62 @@ async function cachedCheck(target, opts, ctx) {
   return { result, cached: false };
 }
 
+/**
+ * The page a PERSON gets when they open the MCP endpoint in a browser.
+ *
+ * Deliberately self-contained and small — it is an error page, not a second front page, so it
+ * carries a few palette values inline rather than the whole theme. What it must do is answer
+ * the question the reader actually has, which is never "what is 405" but "I have this address,
+ * now what".
+ */
+function mcpLandingPage(origin) {
+  const cfg = JSON.stringify({
+    mcpServers: { 'agent-site-checker': { type: 'http', url: `${origin}/mcp` } },
+  }, null, 2);
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#f6f1e4">
+<title>muretai — the Agent Site Checker MCP endpoint</title>
+<style>
+  :root { --bg:#f6f1e4; --bg2:#fbf7ec; --ink:#1d2547; --muted:#5d6488;
+          --line:#e2d9c4; --panel2:#f0e9d8; --accent:#0f8a63;
+          --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+          --serif:ui-serif,"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); min-height:100dvh;
+         font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  main { max-width:640px; margin:0 auto; padding:48px 24px 96px; }
+  h1 { font-family:var(--serif); font-weight:500; font-size:clamp(24px,5vw,32px);
+       line-height:1.15; margin:0 0 8px; letter-spacing:-.4px; }
+  .eyebrow { font-size:12px; text-transform:uppercase; letter-spacing:.14em;
+             color:var(--accent); font-weight:700; margin:0 0 8px; }
+  p { margin:16px 0 0; overflow-wrap:break-word; }
+  .muted { color:var(--muted); font-size:14px; }
+  code, pre { font-family:var(--mono); font-variant-ligatures:none; }
+  pre { background:var(--panel2); border:1px solid var(--line); border-radius:12px;
+        padding:13px 16px; overflow-x:auto; font-size:13px; margin:16px 0 0; }
+  .url { display:block; background:var(--panel2); border:1px solid var(--line);
+         border-radius:12px; padding:13px 16px; font-size:14px; user-select:all;
+         margin:24px 0 0; }
+  a { color:var(--accent); }
+</style></head>
+<body><main>
+  <p class="eyebrow">Agent Site Checker</p>
+  <h1>You have found the machine door.</h1>
+  <p>This address speaks the Model Context Protocol over HTTP POST, so a browser gets a
+     405 — nothing is wrong. It is meant to be handed to an AI client, not opened.</p>
+  <code class="url">${origin}/mcp</code>
+  <p class="muted">Streamable HTTP. No key, no account, no session. Most clients take it in a
+     JSON config:</p>
+  <pre>${cfg.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))}</pre>
+  <p class="muted">A client with no HTTP transport can bridge to it with
+     <code>npx -y mcp-remote ${origin}/mcp</code>. Machine-readable description:
+     <a href="/.well-known/mcp.json">/.well-known/mcp.json</a>.</p>
+  <p>Looking for the checker itself? <a href="/">Paste a website here instead →</a></p>
+</main></body></html>`;
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -101,7 +157,28 @@ export default {
     // ------------------------------------------------------------------ the MCP endpoint
     if (path === '/mcp') {
       if (request.method !== 'POST') {
-        return json({ error: 'this endpoint speaks MCP over HTTP POST' }, 405, { Allow: 'POST, OPTIONS' });
+        // A PERSON WILL OPEN THIS ADDRESS IN A BROWSER. They will have copied it out of a
+        // config file, or clicked it in a chat, and what they got here was
+        // {"error":"this endpoint speaks MCP over HTTP POST"} on a black page — technically
+        // correct and useless. This project has already paid for that lesson once, when a
+        // short invite link handed raw JSON to everyone who clicked it: no test opens a
+        // browser, so nothing failed. The method is still not allowed and the status still
+        // says so; only the body now knows who is reading it.
+        const wantsHtml = (request.headers.get('accept') || '').includes('text/html');
+        if (wantsHtml) {
+          return new Response(mcpLandingPage(url.origin), {
+            status: 405,
+            headers: { 'Content-Type': 'text/html; charset=utf-8', Allow: 'POST, OPTIONS' },
+          });
+        }
+        return json({
+          error: 'this endpoint speaks MCP over HTTP POST',
+          endpoint: `${url.origin}/mcp`,
+          transport: 'streamable-http',
+          discovery: `${url.origin}/.well-known/mcp.json`,
+          humanPage: `${url.origin}/`,
+          hint: 'Point an MCP client at the endpoint above. It needs no key and keeps no session.',
+        }, 405, { Allow: 'POST, OPTIONS' });
       }
       if (!originAllowed(request, url)) {
         return json({ error: 'origin not allowed' }, 403);

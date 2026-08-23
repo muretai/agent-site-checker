@@ -93,6 +93,14 @@ console.log('\n4. the checks a green suite cannot make');
   catch (e) { ok(false, 'the live page carries no score', e.message); }
   const wk = await (await fetch(`${BASE}/.well-known/mcp.json`)).json();
   ok(wk.url === `${BASE}/mcp`, 'the discovery document names this endpoint', wk.url);
+
+  // Somebody will paste the endpoint into a browser. What they get back is a product surface.
+  const inBrowser = await fetch(`${BASE}/mcp`, { headers: { Accept: 'text/html,*/*' } });
+  const html = await inBrowser.text();
+  ok((inBrowser.headers.get('content-type') || '').startsWith('text/html')
+     && html.includes('mcpServers'),
+     'opening the MCP endpoint in a browser explains itself instead of printing a raw error',
+     `${inBrowser.status} ${inBrowser.headers.get('content-type')}`);
 }
 
 console.log(`\n${'-'.repeat(60)}`);

@@ -351,6 +351,35 @@ section('11. the surface list is pinned: only what is standardised, or credibly 
   await site.close();
 }
 
+// ------------------------------------------ 12. a person who opens a machine address in a browser
+section('12. the MCP endpoint answers a browser like a person, and a client like a machine');
+{
+  const worker = (await import('../src/worker.mjs')).default;
+  const call = (path, init = {}) =>
+    worker.fetch(new Request('https://check.muretai.com' + path, init), {}, {});
+
+  // The bug this pins, and it has been paid for once already: a short link handed raw JSON to
+  // everyone who clicked it, and nothing failed, because no test opens a browser.
+  const browser = await call('/mcp', { headers: { Accept: 'text/html,application/xhtml+xml,*/*' } });
+  const page = await browser.text();
+  eq(browser.status, 405, 'a browser GET is still a 405 — the method really is not allowed');
+  ok((browser.headers.get('content-type') || '').startsWith('text/html'),
+     'but it is answered in HTML, not as a bare error object');
+  ok(page.includes('https://check.muretai.com/mcp'), 'the page names the address they arrived at');
+  ok(page.includes('mcpServers'), 'and shows a config they can paste');
+  ok(/href="\/"/.test(page), 'and offers the way back to the checker itself');
+
+  const machine = await call('/mcp');
+  const j = await machine.json();
+  eq(machine.status, 405, 'a non-browser GET is a 405 too');
+  ok(!!j.endpoint && !!j.discovery,
+     'and its JSON is actionable — the endpoint and the discovery document, not just a complaint');
+
+  const post = await call('/mcp', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) });
+  eq(post.status, 200, 'and none of this touched the protocol itself');
+}
+
 // ----------------------------------------------------------------
 console.log(`\n${'-'.repeat(60)}`);
 console.log(`${passed} passed, ${failures.length} failed`);
