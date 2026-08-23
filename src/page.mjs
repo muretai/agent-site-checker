@@ -374,7 +374,7 @@ const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => (
 const CHIP = { verified:'good', proven:'good', fresh:'good', signed:'good',
                'door-answered':'good',
                invalid:'bad', mismatch:'bad', stale:'warn', bogus:'bad',
-               absent:'warn', unproven:'warn', unsigned:'warn', unknown:'dim',
+               absent:'warn', unproven:'warn', unsigned:'warn', incomplete:'warn', unknown:'dim',
                'not-probed':'dim' };
 
 function kv(k, state, detail) {

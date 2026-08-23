@@ -367,6 +367,12 @@ export async function checkSite(input, { resolver = 'cloudflare', probeDoor = tr
     rep.info('DNS-AID: no records', `nothing under _agents.${d.domain} (resolver: ${d.resolver})`);
     rep.info(`the zone ${d.domain} is ${d.dnssec.state}`, d.dnssec.detail);
   }
+  if (d.lookupErrors?.length) {
+    // Absence was NOT established for these names, and saying so is the whole discipline.
+    rep.warn(false, 'every DNS-AID lookup completed',
+      d.lookupErrors.map((x) => `${x.name}: ${x.error}`).join('; ')
+      + ' — absence is NOT established for these names');
+  }
 
   // ---------------------------------------------------------------- 7. what a visitor can use
   if (card && openDoor) {
@@ -432,6 +438,10 @@ export function verdictSentence(r) {
   if (v.door?.reached === 'unknown') {
     parts.push('When we knocked, nothing speaking JSON-RPC replied — we cannot tell whether the '
       + 'door declined or nothing reached it.');
+  }
+  if (r.dnsAid?.lookupErrors?.length) {
+    parts.push(`${r.dnsAid.lookupErrors.length} DNS lookup(s) did not complete, so nothing here `
+      + 'says those records are missing — only that we could not ask.');
   }
   if (r.dnsAid?.found && r.dnsAid.dnssec?.state !== 'signed') {
     parts.push(`DNS-AID records exist under _agents.${r.dnsAid.domain}, but the zone is `

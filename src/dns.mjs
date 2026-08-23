@@ -81,11 +81,27 @@ export async function dohQuery(name, type, { resolver = 'cloudflare' } = {}) {
  *
  * Asked as a DS query at the apex rather than as "did some answer carry AD": a NOERROR with a
  * DS record is the delegation actually carrying a signed link from the parent, which is the
- * thing the draft requires. An unsigned zone answers NOERROR with no DS, which is why `found`
- * and `status` are both reported — "no DS" and "the query failed" are different facts.
+ * thing the draft requires.
+ *
+ * THE STATE WORTH SEPARATING, found by pointing this at our own zone (2026-08-23). When DS is
+ * absent we ask for DNSKEY as well, because "no DS" covers two very different situations:
+ *
+ *   unsigned    no DS, no DNSKEY — DNSSEC was never turned on.
+ *   incomplete  no DS, but the apex HAS a DNSKEY. The zone signs its own answers and the
+ *               parent delegation carries no link to them, so every validating resolver still
+ *               treats it as insecure. Somebody enabled DNSSEC and the chain never closed —
+ *               a registrar step left unfinished, or a DS that never propagated.
+ *
+ * A validator behaves identically in both, which is exactly why a checker that flattens them
+ * is unhelpful: one of them is a decision not taken, the other is a job half done, and only
+ * the second has an owner who believes it is finished.
  */
 export async function zoneDnssec(domain, opts = {}) {
-  const q = await dohQuery(domain, 'DS', opts);
+  // `query` is injectable ONLY so the suite can exercise all five states — no zone we
+  // control can be bogus, incomplete and signed at once, and a state that cannot be
+  // tested is a state that quietly rots.
+  const ask = opts.query || dohQuery;
+  const q = await ask(domain, 'DS', opts);
   if (q.error) return { state: 'unknown', detail: q.error, resolver: q.resolver };
   if (q.status === 2) {
     return { state: 'bogus', resolver: q.resolver,
@@ -96,9 +112,18 @@ export async function zoneDnssec(domain, opts = {}) {
     return { state: 'signed', resolver: q.resolver, records: ds.length,
              detail: `${ds.length} DS record(s) at ${domain}, answer ${q.ad ? 'authenticated (AD)' : 'not marked AD'}` };
   }
+  const keys = await ask(domain, 'DNSKEY', opts);
+  const hasKey = !keys.error && keys.answers.some((a) => a.type === 48);
+  if (hasKey) {
+    return { state: 'incomplete', resolver: q.resolver,
+             detail: `${domain} publishes a DNSKEY, so the zone signs its own answers — but the `
+                   + `parent delegation carries no DS, so the chain of trust does not reach it `
+                   + `and every validating resolver treats it as insecure. DNSSEC was started `
+                   + `and not finished: the DS has not reached the registry yet, or never will.` };
+  }
   return { state: 'unsigned', resolver: q.resolver,
-           detail: `no DS record at ${domain} — the zone is not signed, so a conforming DNS-AID `
-                 + `visitor is required NOT to act on any discovery record found in it` };
+           detail: `no DS and no DNSKEY at ${domain} — the zone is not signed, so a conforming `
+                 + `DNS-AID visitor is required NOT to act on any discovery record found in it` };
 }
 
 /**
@@ -137,12 +162,22 @@ export async function dnsAid(hostname, opts = {}) {
   const labels = hostname.split('.');
   if (labels.length > 2) candidates.push(labels.slice(1).join('.'));
 
+  const ask = opts.query || dohQuery;
+
   for (const domain of candidates) {
-    const queries = [];
-    for (const label of DNSAID_LABELS) {
-      queries.push(dohQuery(`${label}._agents.${domain}`, TYPE_SVCB, opts));
-    }
-    const results = await Promise.all(queries);
+    // One retry per name before believing a failure. DoH over the public internet is flaky
+    // enough that a single timeout is not evidence of anything, and the cost of asking twice
+    // is one round trip against the cost of publishing a wrong absence.
+    // The name is carried from the QUESTION, never read back off the answer: a report should
+    // say what we asked for, and a resolver that answers with a different name (a CNAME chain,
+    // a stub that forgets the field) must not be able to relabel our own findings.
+    const askOnce = async (name) => {
+      const first = await ask(name, TYPE_SVCB, opts);
+      if (!first.error && first.status !== null) return { ...first, name };
+      return { ...(await ask(name, TYPE_SVCB, opts)), name };
+    };
+    const results = await Promise.all(
+      DNSAID_LABELS.map((label) => askOnce(`${label}._agents.${domain}`)));
     const records = [];
     for (const r of results) {
       for (const a of r.answers) {
@@ -152,12 +187,22 @@ export async function dnsAid(hostname, opts = {}) {
       }
     }
     const authenticated = results.some((r) => r.ad === true);
+    // A lookup that ERRORED tells us nothing about whether the record exists. Folding it into
+    // "not found" is the same mistake as reporting "no door" for a site that never loaded —
+    // the failure this whole checker exists to stop making — and it bit here first: a single
+    // transient DoH timeout made one of three published records vanish from the report.
+    const lookupErrors = results
+      .filter((r) => r.error || r.status === null)
+      .map((r) => ({ name: r.name, error: r.error || 'the resolver returned no status' }));
+
     if (records.length || domain === candidates[candidates.length - 1]) {
       const dnssec = await zoneDnssec(domain, opts);
       return {
         domain,
         queried: results.map((r) => ({ name: r.name, status: r.status, ad: r.ad, error: r.error })),
         found: records.length > 0,
+        complete: lookupErrors.length === 0,
+        lookupErrors,
         records,
         authenticated,
         dnssec,
@@ -165,6 +210,7 @@ export async function dnsAid(hostname, opts = {}) {
       };
     }
   }
-  return { domain: hostname, queried: [], found: false, records: [], authenticated: false,
+  return { domain: hostname, queried: [], found: false, complete: true, lookupErrors: [],
+           records: [], authenticated: false,
            dnssec: { state: 'unknown', detail: 'not queried' }, resolver: null };
 }

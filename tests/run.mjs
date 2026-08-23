@@ -221,6 +221,49 @@ section('7. tools/call returns a real, structured result');
   await site.close();
 }
 
+// ------------------------------------------------- 8. the DNS layer tells the states apart
+section('8. DNSSEC states, and a lookup that failed is never an absence');
+{
+  const { zoneDnssec, dnsAid, TYPE_SVCB } = await import('../src/dns.mjs');
+  const answer = (type, data) => ({ status: 0, ad: true, answers: [{ name: 'x', type, data }],
+                                    error: null, resolver: 'stub' });
+  const empty = { status: 0, ad: false, answers: [], error: null, resolver: 'stub' };
+
+  const states = [
+    ['signed',     async (n, ty) => (ty === 'DS' ? answer(43, 'ds data') : empty)],
+    // The one found by pointing this at our own zone mid-setup: Cloudflare had signed the zone
+    // and the DS had not reached the .com registry, so the apex had a DNSKEY and the parent had
+    // nothing. A validator treats that as insecure — but it is a job half done, not a decision
+    // not taken, and only one of those has an owner who thinks it is finished.
+    ['incomplete', async (n, ty) => (ty === 'DNSKEY' ? answer(48, 'key data') : empty)],
+    ['unsigned',   async () => empty],
+    ['bogus',      async () => ({ ...empty, status: 2 })],
+    ['unknown',    async () => ({ ...empty, status: null, error: 'resolver unreachable' })],
+  ];
+  for (const [want, query] of states) {
+    const r = await zoneDnssec('fixture.example', { query });
+    eq(r.state, want, `a zone that looks ${want} is reported ${want}`);
+    ok(!!r.detail, `the ${want} verdict says why`);
+  }
+
+  // One name errors, the others answer. The error must survive into the report, and the names
+  // that failed must NOT be counted as absent.
+  const flaky = async (name, type) => {
+    if (type !== TYPE_SVCB) return empty;
+    if (name.startsWith('_mcp')) return { status: null, ad: null, answers: [],
+                                          error: 'AbortError: timed out', resolver: 'stub' };
+    return { status: 0, ad: true, resolver: 'stub', error: null,
+             answers: [{ name, type: TYPE_SVCB, data: '1 fixture.example. alpn="h2"', TTL: 300 }] };
+  };
+  const d = await dnsAid('fixture.example', { query: flaky });
+  eq(d.records.length, 2, 'the names that answered are reported');
+  eq(d.complete, false, 'the run is marked incomplete');
+  ok(d.lookupErrors.some((x) => x.name.startsWith('_mcp')),
+     'the name whose lookup failed is named in lookupErrors');
+  ok(!d.lookupErrors.some((x) => x.name.startsWith('_a2a')),
+     'a name that answered is not listed as an error');
+}
+
 // ----------------------------------------------------------------
 console.log(`\n${'-'.repeat(60)}`);
 console.log(`${passed} passed, ${failures.length} failed`);
