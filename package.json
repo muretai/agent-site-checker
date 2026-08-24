@@ -1,6 +1,6 @@
 {
   "name": "@muretai/agent-site-checker",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Verify what a website tells AI agents: follow the DNS and HTTP signposts, then check whether what is at the end is real — the agent card's signature, the DID's claim on the origin, and whether anything reached the door at all.",
   "type": "module",
   "license": "MIT",

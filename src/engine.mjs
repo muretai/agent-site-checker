@@ -36,7 +36,7 @@ import { remediesFor } from './remedies.mjs';
 
 // Kept in step with package.json by hand — a checker that misreports which build
 // produced a verdict cannot be argued with, and every report prints this.
-export const VERSION = '0.2.0';
+export const VERSION = '0.2.1';
 
 /** What a visitor enforces before it will speak to a door: a signed card older than this is
  *  refused. Mirrors muretai's `Outbox.CARD_SIG_MAX_AGE`. It is the only check that can tell a
@@ -497,7 +497,7 @@ export async function checkSite(input, { resolver = 'cloudflare', probeDoor = tr
     return { surface: name, url: checkBase + path, status: r.status,
              present: plausible(shape, r),
              contentType: r.headers['content-type'] || null,
-             bytes: r.bytes, why };
+             bytes: r.bytes, why, body: r.body };
   });
   // ONE PROBE THAT DECIDES WHETHER ABSENCE MEANS ANYTHING HERE. A path nobody could be
   // serving on purpose: if it answers 200, this origin answers 200 for everything, and no
@@ -514,15 +514,31 @@ export async function checkSite(input, { resolver = 'cloudflare', probeDoor = tr
   const answersEverything = catchAll.status === 200;
   if (answersEverything) {
     rep.info('this origin answers 200 for paths that cannot exist',
-      `${catchAll.url ?? 'the probe path'} -> 200. Presence was not established for any surface `
-      + 'below: a catch-all route makes a published file and a missing one look identical from '
-      + 'outside.');
+      `${catchAll.url ?? 'the probe path'} -> 200, ${catchAll.bytes} bytes. A status alone `
+      + 'establishes nothing here; what a surface returned is compared against this body.');
   }
   for (const f of factRows) {
-    if (answersEverything) {
+    // A CATCH-ALL DOES NOT MEAN THE SITE PUBLISHES NOTHING — AND SAYING SO IS THE SAME BUG
+    // INVERTED.
+    //
+    // The first real site this ran against (awiki.ai, 2026-08-24) answers 200 with an 80 KB SPA
+    // shell for every invented path AND genuinely publishes robots.txt (104 bytes, text/plain,
+    // `User-agent: *`) and sitemap.xml (2888 bytes, `<?xml … <urlset`). Blanking every surface
+    // reported both real files as "not established" — a false negative, on a tool whose product
+    // is reporting what is true. The version before it reported nine surfaces that did not
+    // exist. Both failures come from reading the STATUS instead of the RESPONSE.
+    //
+    // So the catch-all changes what a 200 is worth, not what a body is worth: a surface still
+    // counts when it looks like the artifact asked for AND differs from what the catch-all
+    // returns. Body comparison rather than content-type alone, because a static host that
+    // guesses the type from the extension will happily label the SPA shell `text/plain` for a
+    // `.txt` path — which is exactly the case this has to survive.
+    if (answersEverything && (f.present !== true || f.body === catchAll.body)) {
       f.present = null;
-      f.detail = 'this origin answers 200 for absent paths, so nothing was established here';
+      f.detail = 'this origin answers 200 for absent paths and this path returned the same '
+               + 'response, so nothing was established here';
     }
+    delete f.body;
     result.facts.push(f);
     rep.info(`${f.surface}: ${f.present === null ? 'not established' : f.present ? 'present' : 'absent'}`,
       `${f.url} -> ${f.status ?? 'no response'}`

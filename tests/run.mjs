@@ -445,6 +445,29 @@ section('13. the attacks a red-team found — each one run against the product')
      'and the verdict does not credit the site with them');
   await spa.close();
 
+  // A2d. …AND A CATCH-ALL DOES NOT MEAN THE SITE PUBLISHES NOTHING. Blanking every surface
+  // when the probe fires is the same bug inverted: the first real site this was pointed at
+  // answers 200 with an 80 KB SPA shell for every invented path AND genuinely publishes
+  // robots.txt and sitemap.xml. Reporting those two as unestablished is a false negative on a
+  // tool whose product is reporting what is true. A surface counts when it looks like the
+  // artifact asked for AND differs from what the catch-all returns.
+  const REAL_ROBOTS = 'User-agent: *\nAllow: /\n';
+  const mixed = await serve((req, res) => {
+    if (req.url === '/robots.txt') {
+      res.writeHead(200, { 'Content-Type': 'text/plain' }); return res.end(REAL_ROBOTS);
+    }
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end('<!doctype html><title>spa</title>');
+  });
+  const mx = await checkSite(mixed.origin, LOCAL);
+  const robots = mx.facts.find((f) => f.surface === 'robots.txt');
+  eq(robots?.present, true,
+     'a real file is still established even when the origin catch-alls everything else');
+  eq(mx.facts.find((f) => f.surface === 'llms.txt')?.present, null,
+     'while a path returning the catch-all body establishes nothing');
+  ok(!('body' in (robots || {})), 'and the compared body is not published in the result');
+  await mixed.close();
+
   // A3. Indirect prompt injection: newlines let a fetched value impersonate a new section of
   // the very text this tool tells an agent to act on.
   const inject = await siteWithCard({ mutate: 'injection' });
