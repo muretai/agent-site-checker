@@ -561,8 +561,10 @@ function render(r) {
     for (const f of (r.facts || [])) {
       h += '<div class="kv"><span class="k">' + esc(f.surface) +
         '<span class="dt">' + esc(f.detail || f.url) + '</span></span>' +
-        '<span class="v"><span class="chip ' + (f.present ? 'good' : 'dim') + '">' +
-        (f.present ? 'present' : 'absent') + '</span></span></div>';
+        '<span class="v"><span class="chip ' +
+        (f.present === null ? 'dim' : f.present ? 'good' : 'dim') + '">' +
+        (f.present === null ? 'not established' : f.present ? 'present' : 'absent') +
+        '</span></span></div>';
     }
     h += '</div></div>';
 

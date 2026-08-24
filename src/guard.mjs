@@ -154,9 +154,10 @@ export function normaliseInput(input, opts = {}) {
 export async function boundedFetch(url, {
   method = 'GET', body = null, headers = {},
   maxBytes = DEFAULT_MAX_BYTES, timeoutMs = DEFAULT_TIMEOUT_MS, maxRedirects = MAX_REDIRECTS,
-  allowPrivate = false, deadline = null,
+  allowPrivate = false, deadline = null, sameOriginOnly = null,
 } = {}) {
   const redirects = [];
+  let method_ = method, body_ = body;
   let current = guardURL(url instanceof URL ? url.href : url, { allowPrivate });
 
   for (let hop = 0; hop <= maxRedirects; hop++) {
@@ -178,8 +179,8 @@ export async function boundedFetch(url, {
     let res;
     try {
       res = await fetch(current.href, {
-        method,
-        body,
+        method: method_,
+        body: body_,
         redirect: 'manual',
         signal: ac.signal,
         headers: { 'User-Agent': USER_AGENT, ...headers },
@@ -207,6 +208,29 @@ export async function boundedFetch(url, {
           finalUrl: current.href, redirects,
           error: `redirect refused — ${e.reason}`,
         };
+      }
+      // A SAME-ORIGIN RULE ENFORCED ONCE IS NOT ENFORCED.
+      //
+      // The door POST is restricted to the origin under check (see engine.mjs, "WHERE THE ONE
+      // POST THIS TOOL MAKES IS ALLOWED TO GO") because the target comes out of a stranger's
+      // JSON. That restriction was applied to the FIRST url and then discarded here: a card
+      // advertising a same-origin door that answers `307 Location: https://victim.example/x`
+      // had the POST — method, body and all — delivered to the victim, with the victim's
+      // status handed back as an oracle. It is the confused deputy the engine's comment says
+      // it closed, one hop later.
+      if (sameOriginOnly && next.origin !== sameOriginOnly) {
+        return {
+          status: res.status, headers: h, body: '', bytes: 0,
+          finalUrl: current.href, redirects,
+          error: `redirect refused - it leaves the origin under check (${next.origin})`,
+        };
+      }
+      // RFC 9110 SS15.4: 301/302/303 are rewritten to GET by every real client; only 307/308
+      // preserve the method. Carrying a POST body through a 302 sends it somewhere the sender
+      // never addressed it.
+      if (res.status === 301 || res.status === 302 || res.status === 303) {
+        method_ = 'GET';
+        body_ = null;
       }
       redirects.push({ from: current.href, to: next.href, status: res.status });
       current = next;

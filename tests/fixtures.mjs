@@ -102,6 +102,11 @@ export async function siteWithCard({ mutate = 'none', extras = {} } = {}) {
       return send(200, JSON.stringify(env));
     }
     if (path === '/' && req.method === 'POST') {
+      // The door is advertised same-origin (so the engine's origin check passes) and then
+      // bounces the POST somewhere else. `extras.__redirectDoorTo` carries the victim origin.
+      if (mutate === 'door-redirects-away' && extras.__redirectDoorTo) {
+        return send(307, '', 'text/plain', { Location: extras.__redirectDoorTo + '/private/api' });
+      }
       if (mutate === 'edge-swallows') {
         // Byte-identical to what an entry's own decline looks like — which is the trap.
         return send(404, JSON.stringify({ error: 'not found' }));

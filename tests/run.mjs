@@ -18,7 +18,7 @@ import { dispatch, TOOLS } from '../src/mcp.mjs';
 import { guardURL, RefusedURL } from '../src/guard.mjs';
 import { renderPage } from '../src/page.mjs';
 import { assertNoScore } from '../src/report.mjs';
-import { siteWithCard, bareSite } from './fixtures.mjs';
+import { siteWithCard, bareSite, serve } from './fixtures.mjs';
 
 let passed = 0;
 const failures = [];
@@ -404,6 +404,46 @@ section('13. the attacks a red-team found — each one run against the product')
      'no POST is sent to a door on another origin');
   ok(/not on this origin/.test(d.verification.door.detail || ''), 'and the report says why');
   await elsewhere.close();
+
+  // A2b. THE SAME DEPUTY, ONE HOP LATER. A2's rule is applied to the FIRST url; a card can
+  // advertise a door that is genuinely same-origin and then answer 307 to a third party. The
+  // POST carries method AND body across a redirect, so without a same-origin rule INSIDE the
+  // redirect loop the victim receives the knock and its status comes back as an oracle.
+  // Measured before the fix: the victim logged `POST /private/api` with the full JSON-RPC body.
+  const hits = [];
+  const victim = await serve((req, res) => {
+    let b = ''; req.on('data', (c) => { b += c; });
+    req.on('end', () => {
+      hits.push({ method: req.method, url: req.url, bytes: b.length });
+      res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"ok":true}');
+    });
+  });
+  const bouncer = await siteWithCard({ mutate: 'door-redirects-away',
+                                       extras: { __redirectDoorTo: victim.origin } });
+  const b2 = await checkSite(bouncer.origin, LOCAL);
+  eq(hits.length, 0, 'a door that redirects off-origin never receives the POST');
+  ok(b2.verification.door.reached !== 'door-answered',
+     'and the redirect is not counted as the door answering');
+  ok(/another origin/.test(b2.verification.door.detail || ''),
+     'and the report names the redirect rather than calling it silence');
+  await bouncer.close(); await victim.close();
+
+  // A2c. A CATCH-ALL 200 IS NOT NINE PUBLISHED SURFACES. An SPA answering 200 text/html for
+  // every path - the Vercel/Netlify/Next/CRA default - was reported as publishing all nine
+  // fact surfaces, and the verdict named them. That is this tool's own thesis ("present is
+  // not the same as real") failing at the fact layer, on the line a reader sees first.
+  const spa = await serve((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end('<!doctype html><title>spa</title>');
+  });
+  const sp = await checkSite(spa.origin, LOCAL);
+  eq(sp.facts.filter((f) => f.present === true).length, 0,
+     'a catch-all 200 establishes no surface as present');
+  ok(sp.facts.some((f) => f.present === null),
+     'and the surfaces are reported as not established rather than absent');
+  ok(!/Also published[^.]*llms\.txt/.test(sp.verdict || ''),
+     'and the verdict does not credit the site with them');
+  await spa.close();
 
   // A3. Indirect prompt injection: newlines let a fetched value impersonate a new section of
   // the very text this tool tells an agent to act on.

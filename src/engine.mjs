@@ -65,17 +65,39 @@ export const CARD_SIG_MAX_AGE_S = 6 * 3600;
  *   /.well-known/ai-plugin.json  the 2023 plugin manifest — superseded and not coming back
  */
 const FACT_SURFACES = [
-  ['llms.txt', '/llms.txt', 'the plain-language brief written for language models'],
-  ['robots.txt', '/robots.txt', 'crawler policy, AI-bot rules and Content-Signal'],
-  ['sitemap.xml', '/sitemap.xml', 'the URL list a scanner samples'],
-  ['agents.md', '/agents.md', 'instructions addressed to coding agents'],
-  ['mcp discovery', '/.well-known/mcp.json', 'a pointer to an MCP endpoint'],
-  ['mcp server card', '/.well-known/mcp/server-card.json', 'the MCP server description (draft)'],
-  ['agent skills index', '/.well-known/agent-skills/index.json', 'skills an agent may load'],
-  ['api catalog', '/.well-known/api-catalog', 'RFC 9727 linkset of APIs'],
+  ['llms.txt', '/llms.txt', 'the plain-language brief written for language models', 'text'],
+  ['robots.txt', '/robots.txt', 'crawler policy, AI-bot rules and Content-Signal', 'text'],
+  ['sitemap.xml', '/sitemap.xml', 'the URL list a scanner samples', 'xml'],
+  ['agents.md', '/agents.md', 'instructions addressed to coding agents', 'text'],
+  ['mcp discovery', '/.well-known/mcp.json', 'a pointer to an MCP endpoint', 'json'],
+  ['mcp server card', '/.well-known/mcp/server-card.json', 'the MCP server description (draft)', 'json'],
+  ['agent skills index', '/.well-known/agent-skills/index.json', 'skills an agent may load', 'json'],
+  ['api catalog', '/.well-known/api-catalog', 'RFC 9727 linkset of APIs', 'json'],
   ['web bot auth directory', '/.well-known/http-message-signatures-directory',
-   'the keys this site\'s own outbound agents sign with'],
+   'the keys this site\'s own outbound agents sign with', 'json'],
 ];
+
+/**
+ * Is this response PLAUSIBLY the thing that was asked for?
+ *
+ * THE BUG THIS EXISTS FOR, and it is this tool's own thesis failing at the fact layer.
+ * `present` used to be `status === 200`. An SPA that answers 200 text/html for every path -
+ * the default on Vercel, Netlify, Next.js and create-react-app, i.e. a large fraction of the
+ * web - was reported as publishing ALL NINE surfaces, and the verdict listed them by name.
+ * Nine claims, none true, on the line a reader sees first. "Present is not the same as real"
+ * has to hold here too, or the fact layer is the presence scanner this tool says it is not.
+ *
+ * Deliberately loose. A lot of correct `llms.txt` is served as `text/plain`, so the text rule
+ * only refuses HTML; the JSON rule requires the body to parse, which is the same bar the card
+ * has always had to clear.
+ */
+function plausible(shape, r) {
+  if (r.status !== 200) return false;
+  const type = String(r.headers['content-type'] || '').toLowerCase();
+  if (shape === 'json') return j(r.body) !== null;
+  if (shape === 'xml') return /^\s*<\?xml|<urlset|<sitemapindex/i.test(r.body || '');
+  return !type.includes('text/html');
+}
 
 const j = (s) => { try { return JSON.parse(s); } catch { return null; } };
 
@@ -415,6 +437,7 @@ export async function checkSite(input, { resolver = 'cloudflare', probeDoor = tr
     let doorOk = false;
     try {
       const probe = await boundedFetch(doorUrl, { allowPrivate, deadline,
+        sameOriginOnly: originBase,     // the restriction above must survive a redirect
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -434,6 +457,16 @@ export async function checkSite(input, { resolver = 'cloudflare', probeDoor = tr
                       + 'framework route answering in its place. It does NOT prove a working '
                       + 'door: a static file can serve those same bytes, and only a signed '
                       + 'exchange would tell the difference.';
+      } else if (probe.error && probe.error.startsWith('redirect refused')) {
+        // A DIFFERENT FACT FROM "NOTHING SPOKE THE PROTOCOL", AND THE READER NEEDS IT NAMED.
+        // The card advertised a door on this origin and the origin bounced the knock somewhere
+        // else. Nothing was sent onward, so we know nothing about the door — but "this address
+        // redirects your POST off-origin" is a finding about the site, not a silence.
+        v.door.reached = 'unknown';
+        v.door.detail = `the advertised door answered HTTP ${probe.status} and pointed the knock at `
+                      + 'another origin, so nothing was sent onward. A door is the address its own '
+                      + 'card names; a redirect to somewhere else means the POST a visiting agent '
+                      + 'aims here would be delivered to a third party.';
       } else {
         v.door.reached = 'unknown';
         v.door.detail = `HTTP ${probe.status ?? probe.error} with no JSON-RPC envelope. This does `
@@ -459,19 +492,41 @@ export async function checkSite(input, { resolver = 'cloudflare', probeDoor = tr
   v.signpost = { link: home.headers.link || null, rels, agentEntry: hasSignpost, serviceDesc: hasServiceDesc };
 
   // ---------------------------------------------------------------- 5. facts, never graded
-  const factFetches = FACT_SURFACES.map(async ([name, path, why]) => {
+  const factFetches = FACT_SURFACES.map(async ([name, path, why, shape]) => {
     const r = await boundedFetch(checkBase + path, { allowPrivate, deadline, maxBytes: 128 * 1024 });
-    return { surface: name, url: checkBase + path, status: r.status, present: r.status === 200,
+    return { surface: name, url: checkBase + path, status: r.status,
+             present: plausible(shape, r),
+             contentType: r.headers['content-type'] || null,
              bytes: r.bytes, why };
   });
+  // ONE PROBE THAT DECIDES WHETHER ABSENCE MEANS ANYTHING HERE. A path nobody could be
+  // serving on purpose: if it answers 200, this origin answers 200 for everything, and no
+  // status on this page establishes presence OR absence. That is `dns.mjs`'s lookupErrors
+  // discipline - "a lookup that ERRORED tells us nothing" - applied to HTTP.
+  const catchAllProbe = boundedFetch(
+    checkBase + '/.well-known/agent-site-checker-probe-' + Math.random().toString(36).slice(2, 12),
+    { allowPrivate, deadline, maxBytes: 8 * 1024 });
 
   const mdProbe = boundedFetch(checkBase + '/', { allowPrivate, deadline, headers: { Accept: 'text/markdown' } });
-  const [factRows, md] = await Promise.all([Promise.all(factFetches), mdProbe]);
+  const [factRows, md, catchAll] = await Promise.all([
+    Promise.all(factFetches), mdProbe, catchAllProbe]);
 
+  const answersEverything = catchAll.status === 200;
+  if (answersEverything) {
+    rep.info('this origin answers 200 for paths that cannot exist',
+      `${catchAll.url ?? 'the probe path'} -> 200. Presence was not established for any surface `
+      + 'below: a catch-all route makes a published file and a missing one look identical from '
+      + 'outside.');
+  }
   for (const f of factRows) {
+    if (answersEverything) {
+      f.present = null;
+      f.detail = 'this origin answers 200 for absent paths, so nothing was established here';
+    }
     result.facts.push(f);
-    rep.info(`${f.surface}: ${f.present ? 'present' : 'absent'}`,
-      `${f.url} -> ${f.status ?? 'no response'}`);
+    rep.info(`${f.surface}: ${f.present === null ? 'not established' : f.present ? 'present' : 'absent'}`,
+      `${f.url} -> ${f.status ?? 'no response'}`
+      + (f.contentType ? ` (${f.contentType})` : ''));
   }
 
   const mdType = String(md.headers['content-type'] || '');
