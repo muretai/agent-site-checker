@@ -36,7 +36,7 @@ import { remediesFor } from './remedies.mjs';
 
 // Kept in step with package.json by hand — a checker that misreports which build
 // produced a verdict cannot be argued with, and every report prints this.
-export const VERSION = '0.2.1';
+export const VERSION = '0.3.0';
 
 /** What a visitor enforces before it will speak to a door: a signed card older than this is
  *  refused. Mirrors muretai's `Outbox.CARD_SIG_MAX_AGE`. It is the only check that can tell a
@@ -432,6 +432,7 @@ export async function checkSite(input, { resolver = 'cloudflare', probeDoor = tr
       rep.warn(false, 'the advertised door is on the origin being checked', v.door.detail);
     }
   }
+  let doorRpc = null;   // the door's own JSON-RPC reply to the one knock, read again in 3b
   if (v.door.url) {
     const doorUrl = v.door.url;
     let doorOk = false;
@@ -450,6 +451,7 @@ export async function checkSite(input, { resolver = 'cloudflare', probeDoor = tr
       v.door.status = probe.status;
       if (isRpc) {
         doorOk = true;
+        doorRpc = parsed;
         const code = parsed.error?.code ?? null;
         v.door.reached = 'door-answered';
         v.door.detail = `a JSON-RPC ${code === null ? 'result' : `error ${code}`} came back, so `
@@ -480,6 +482,143 @@ export async function checkSite(input, { resolver = 'cloudflare', probeDoor = tr
     }
     rep.warn(doorOk, 'something speaking the protocol answered at the door address',
       v.door.detail);
+  }
+
+  // ------------------------------- 3b. the terms before the knock, and the refusal that teaches
+  //
+  // A GUARDRAIL IS WHAT A DOOR DOES, NOT WHAT A POLICY FILE SAYS. Five robots.txt successors
+  // now let a site write down what agents may do, and a paper that measured it (arXiv
+  // 2606.06460) found agents honour such text 0–100 % depending on the model. So this section
+  // reports the two guardrails that are OBSERVABLE from outside with the one knock already sent,
+  // both of them things the server does rather than things a file says:
+  //
+  //   TERMS   the card states, before anyone knocks, exactly what the door accepts — the
+  //           recipient, the six signed fields, the canonicalization, the signature, the
+  //           timestamp rule, where the envelope goes, and a copyable example (Agent Entry v1
+  //           AE-8; AE-9 if it points at a how-to, that page must resolve). A card that
+  //           advertises a door and says nothing about how to call it teaches every visitor
+  //           by refusing them.
+  //   REFUSAL the door's refusal of an unsigned message carries those same terms, verbatim
+  //           (AE-24), and the recipe survives having every URL removed (AE-25): a visitor
+  //           holding only the refusal, plus ordinary crypto tooling, can knock correctly next
+  //           time. Menu and door are one object on two surfaces, so they cannot disagree.
+  //
+  // WHAT IS NOT MEASURED, NAMED RATHER THAN SKIPPED: the aggregate rate ceiling (AE-28) is the
+  // guardrail that matters most against a free identity, and proving it from outside means
+  // driving a stranger's door past its limit — a flood. Only the operator can measure that,
+  // from inside their own limit, so this reports it as not measured and says why.
+  const TERMS_FIELDS = ['recipient', 'signedFields', 'canonicalization', 'signature', 'timestamp', 'in', 'exampleRequest'];
+  const SIX_FIELDS = ['contextId', 'from', 'messageId', 'text', 'timestamp', 'to'];
+  const isSix = (a) => Array.isArray(a) && a.length === 6 && [...a].map(String).sort().join(',') === SIX_FIELDS.join(',');
+  const stable = (x) => JSON.stringify(x, (k, val) => (val && typeof val === 'object' && !Array.isArray(val))
+    ? Object.fromEntries(Object.keys(val).sort().map((kk) => [kk, val[kk]])) : val);
+  const isUrl = (x) => typeof x === 'string' && /^https?:\/\//i.test(x);
+  const findTerms = (c) => {
+    const schemes = c?.securitySchemes && typeof c.securitySchemes === 'object' ? Object.entries(c.securitySchemes) : [];
+    for (const [name, sch] of schemes) {
+      if (!sch || typeof sch !== 'object') continue;
+      // Agent Entry serves the requirement object nested beside a standard type/description
+      // (`securitySchemes["did-key-ed25519"].agentEntry`); older cards put it at the top level.
+      for (const r of [sch.agentEntry, sch.muretai, sch]) {
+        if (r && typeof r === 'object' && (Array.isArray(r.signedFields) || typeof r.recipient === 'string')) return { name, terms: r };
+      }
+    }
+    return null;
+  };
+
+  v.terms = { state: 'n/a', scheme: null, missing: [], detail: 'no open door is advertised, so no terms are expected' };
+  v.howTo = { state: 'absent', url: null, status: null, detail: null };
+  v.refusal = { state: 'n/a', code: null, detail: 'no refusal was obtained from the door' };
+  v.limits = { state: 'n/a', detail: null };
+  let doorTerms = null;
+
+  if (card && openDoor) {
+    const found = findTerms(card);
+    if (!found) {
+      v.terms = { state: 'absent', scheme: null, missing: TERMS_FIELDS,
+        detail: 'the card advertises an open door and states no terms (no securitySchemes entry naming '
+              + 'the recipient and the signed fields), so a visitor learns what to send only by being refused' };
+      rep.warn(false, 'the card states its terms before anyone knocks', v.terms.detail);
+    } else {
+      doorTerms = found.terms;
+      const t = found.terms;
+      const missing = TERMS_FIELDS.filter((k) => t[k] == null);
+      const problems = [];
+      if (missing.length) problems.push(`missing ${missing.join(', ')}`);
+      if (t.signedFields != null && !isSix(t.signedFields)) problems.push('signedFields is not exactly the six frozen names');
+      if (typeof t.exampleRequest === 'string') problems.push('exampleRequest is a JSON string, which has to be unescaped before it can be copied');
+      const recipientMismatch = typeof t.recipient === 'string' && t.recipient !== rawDid;
+      v.terms = { state: recipientMismatch ? 'mismatch' : problems.length ? 'partial' : 'stated',
+                  scheme: clean(found.name, 60), missing,
+                  detail: recipientMismatch
+                    ? `the terms name ${clean(t.recipient)} as recipient, but the card's DID is ${did}; a visitor who addresses the recipient the terms name is talking to somebody else`
+                    : problems.length ? problems.join('; ')
+                    : `securitySchemes.${clean(found.name, 60)}: recipient, the six signed fields, canonicalization, signature, timestamp, in, and a copyable exampleRequest` };
+      if (recipientMismatch) rep.check(false, 'the terms name the card\'s own DID as the recipient', v.terms.detail);
+      else rep.warn(v.terms.state === 'stated', 'the card states its terms before anyone knocks', v.terms.detail);
+
+      if (t.howTo != null) {
+        const howToUrl = isUrl(t.howTo) ? String(t.howTo) : null;
+        v.howTo.url = clean(t.howTo, 300);
+        if (!howToUrl) {
+          v.howTo.state = 'dangling';
+          v.howTo.detail = 'howTo is not an http(s) URL, so nothing can follow it';
+        } else {
+          // A GET to a page the site's own card names. The guard still applies (no private
+          // ranges, bounded bytes); it is a GET with no body, so there is no deputy to confuse.
+          const ht = await boundedFetch(howToUrl, { allowPrivate, deadline, maxBytes: 64 * 1024, headers: { Accept: 'text/html,text/markdown,*/*' } });
+          v.howTo.status = ht.status;
+          const resolves = ht.status !== null && ht.status >= 200 && ht.status < 400;
+          v.howTo.state = resolves ? 'resolves' : 'dangling';
+          v.howTo.detail = resolves ? `GET -> ${ht.status}` : `GET -> ${ht.status ?? ht.error}: a visitor holding a complete instruction object will follow a broken link and stop there`;
+        }
+        rep.check(v.howTo.state === 'resolves', 'the how-to page the terms point at resolves', `${v.howTo.url} ${v.howTo.detail}`);
+      } else {
+        rep.info('the terms point at no how-to page', 'that is fine — nothing a signer needs may live only behind such a link');
+      }
+    }
+
+    // The refusal, read from the knock already sent (an unsigned message/send: AE-18 row 7).
+    if (doorRpc && doorRpc.error && typeof doorRpc.error === 'object') {
+      const code = Number.isInteger(doorRpc.error.code) ? doorRpc.error.code : null;
+      v.refusal.code = code;
+      if (code === -32001) {
+        const accepts = doorRpc.error.data?.accepts;
+        if (!Array.isArray(accepts) || !accepts.length || !accepts[0] || typeof accepts[0] !== 'object') {
+          v.refusal = { ...v.refusal, state: 'silent',
+            detail: 'the door refused the unsigned message with -32001 and did not say what it accepts (no data.accepts); a visitor holding only this refusal cannot knock correctly next time' };
+        } else if (doorTerms && stable(accepts[0]) !== stable(doorTerms)) {
+          v.refusal = { ...v.refusal, state: 'drifted',
+            detail: 'data.accepts[0] in the refusal is not the object the card publishes as its terms — the menu and the door advertise two different requirements, and a visitor cannot tell which one is current' };
+        } else {
+          const a = accepts[0];
+          const stripped = Object.fromEntries(Object.entries(a).filter(([, val]) => !isUrl(val)));
+          const still = ['recipient', 'canonicalization', 'signature', 'timestamp', 'identity'].filter((k) => stripped[k] == null || stripped[k] === '');
+          const sixStill = isSix(stripped.signedFields);
+          if (still.length || !sixStill) {
+            v.refusal = { ...v.refusal, state: 'incomplete',
+              detail: `strip every URL from the refusal and the recipe no longer names ${[...still, ...(sixStill ? [] : ['the six signed fields'])].join(', ')}; a visitor must never depend on fetching a second document to answer the first` };
+          } else {
+            v.refusal = { ...v.refusal, state: 'teaches',
+              detail: doorTerms ? 'the -32001 carries data.accepts[0], equal to the terms on the card, and complete with every URL removed'
+                                : 'the -32001 carries a complete data.accepts[0] (no terms on the card to compare it with)' };
+          }
+        }
+      } else {
+        v.refusal = { ...v.refusal, state: 'other', detail: `the door answered the unsigned message with error ${code ?? '(no code)'} rather than -32001, so there is no signature refusal to read` };
+      }
+    } else if (doorRpc && doorRpc.result !== undefined) {
+      v.refusal = { ...v.refusal, state: 'accepted-unsigned', detail: 'the door answered an unsigned message with a result: it asks for no signature, so there is no refusal to read' };
+    }
+    if (v.refusal.state === 'drifted') rep.check(false, 'the door\'s refusal repeats the terms on the card', v.refusal.detail);
+    else if (['silent', 'incomplete', 'teaches'].includes(v.refusal.state)) rep.warn(v.refusal.state === 'teaches', 'the door\'s refusal teaches what it accepts', v.refusal.detail);
+    else rep.info(`the door\'s refusal: ${v.refusal.state}`, v.refusal.detail);
+
+    v.limits = { state: 'not-measured',
+      detail: 'the aggregate reply ceiling — the one guardrail that holds against a free identity — cannot be '
+            + 'measured from outside without driving this door past its limit, which is a flood. Only the operator '
+            + 'can measure it, from inside their own limit.' };
+    rep.info('rate ceiling: not measured', v.limits.detail);
   }
 
   // ---------------------------------------------------------------- 4. the door signpost
@@ -598,8 +737,12 @@ export async function checkSite(input, { resolver = 'cloudflare', probeDoor = tr
       did,
       protocol: 'A2A JSON-RPC 2.0 (message/send), Ed25519-signed envelopes',
       identityVerified: v.signature.state === 'verified' && v.originBinding.state === 'proven',
+      termsStated: v.terms.state === 'stated',
+      refusalTeaches: v.refusal.state === 'teaches',
       nextCall: 'POST a signed message/send. Every message must carry a signature from your own '
-              + 'did:key, or the door will refuse it (-32001).',
+              + 'did:key, or the door will refuse it (-32001).'
+              + (v.terms.state === 'stated' ? ' The card states the terms (securitySchemes) before you knock.' : '')
+              + (v.refusal.state === 'teaches' ? ' The refusal repeats them, so one knock is enough to learn the recipe.' : ''),
     });
   }
   for (const r of d.records) {
@@ -660,6 +803,14 @@ export function verdictSentence(r) {
   if (v.door?.reached === 'unknown') {
     parts.push('When we knocked, nothing speaking JSON-RPC replied — we cannot tell whether the '
       + 'door declined or nothing reached it.');
+  }
+  if (v.terms?.state === 'stated' && v.refusal?.state === 'teaches') {
+    parts.push('Its terms are on the card and its refusal repeats them, so a stranger can knock '
+      + 'correctly on the second try.');
+  } else if (v.terms?.state === 'absent') {
+    parts.push('It states no terms on the card, so a visitor learns what to send only by being refused.');
+  } else if (v.terms?.state === 'mismatch' || v.refusal?.state === 'drifted') {
+    parts.push('Its terms and its door disagree — see the failed checks.');
   }
   if (r.dnsAid?.lookupErrors?.length) {
     parts.push(`${r.dnsAid.lookupErrors.length} DNS lookup(s) did not complete, so nothing here `

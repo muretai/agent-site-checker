@@ -69,6 +69,25 @@ this.
 | the DID is bound to **this** origin | a valid card **copied here from another site** — it still verifies, and it still names the other site |
 | the envelope is fresh (≤ 6h) | a static file somebody pasted months ago, rather than a live service re-signing on a timer |
 
+**Guardrails — what the door DOES, read with the same knock.** Five `robots.txt` successors now
+let a site write down what agents may do, and the paper that measured it
+([arXiv 2606.06460](https://arxiv.org/abs/2606.06460)) found agents honour such text anywhere
+from 0 % to 100 % depending on the model. A guardrail is what the server does, not what a file
+says — and two of the things a door does are observable from outside, with the one unsigned
+knock this tool already sends:
+
+| check | what it catches |
+|---|---|
+| the card states its **terms before anyone knocks** — recipient, the six signed fields, canonicalization, signature, timestamp, where the envelope goes, a copyable example (Agent Entry v1 AE-8) | a door that advertises a skill and says nothing about how to call it, so every visitor learns the requirement by being refused |
+| the terms name the card's **own DID** as recipient | terms that send every visitor's signed message to somebody else |
+| a **how-to** the terms point at resolves (AE-9) | a dangling pointer, which out-competes the complete data beside it |
+| the door's **refusal teaches**: the `-32001` to an unsigned message carries `data.accepts[0]`, equal to the card's terms (AE-24), and still a complete recipe with every URL removed (AE-25) | a refusal that is silent, a refusal that has drifted from the card, and a refusal that is only a pointer |
+
+One guardrail is deliberately reported as **not measured**: the aggregate rate ceiling
+(AE-28), the one that actually holds against a free identity. Proving it from outside means
+driving a stranger's door past its limit, which is a flood. Only the operator can measure
+that, from inside their own limit, and the report says so rather than guessing.
+
 **Behaviour.** When we knock, does the **door** answer, or does something in front of it?
 A proxy can return bytes byte-identical to the door's own refusal, so a checker that reports
 "the door declined" may have certified a door it never reached. This reports `unknown` and

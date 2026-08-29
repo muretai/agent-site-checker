@@ -110,6 +110,10 @@ function summaryText(r) {
       lines.push(`  - ${i.kind} at ${i.endpoint}`
         + ` — identity ${i.identityVerified ? 'VERIFIED' : 'not verified'}`);
       if (i.nextCall) lines.push(`    next: ${i.nextCall}`);
+      if (i.kind === 'a2a-agent-entry' && r.verification?.terms) {
+        lines.push(`    guardrails observed: terms on the card ${r.verification.terms.state}; refusal ${r.verification.refusal?.state}; `
+                 + `rate ceiling ${r.verification.limits?.state} (only the operator can measure that)`);
+      }
     }
   }
   const failed = r.summary?.failed ?? [];

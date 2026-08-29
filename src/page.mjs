@@ -478,6 +478,14 @@ form.ask input { flex:1; }
           we cannot tell which one spoke, we say so instead of guessing.</p>
       </article>
       <article class="card">
+        <span class="chip good">terms</span>
+        <h3>The door says its terms before you knock.</h3>
+        <p>A guardrail is what a server does, not what a policy file says. So we read the terms
+          the card states — recipient, signed fields, canonicalization — and whether the door's
+          refusal repeats them, so a stranger can knock correctly on the second try. The rate
+          ceiling is reported as not measured: proving it would mean flooding someone's door.</p>
+      </article>
+      <article class="card">
         <span class="chip dim">no score</span>
         <h3>Every line names its URL.</h3>
         <p>You get what was fetched and what came back. A single number would hide whose rubric
@@ -514,10 +522,11 @@ const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => (
   {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 const CHIP = { verified:'good', proven:'good', fresh:'good', signed:'good',
-               'door-answered':'good',
-               invalid:'bad', mismatch:'bad', stale:'warn', bogus:'bad',
+               'door-answered':'good', stated:'good', teaches:'good', resolves:'good',
+               invalid:'bad', mismatch:'bad', stale:'warn', bogus:'bad', drifted:'bad', dangling:'bad',
                absent:'warn', unproven:'warn', unsigned:'warn', incomplete:'warn', unknown:'dim',
-               'not-probed':'dim' };
+               partial:'warn', silent:'warn', other:'dim', 'accepted-unsigned':'dim',
+               'not-probed':'dim', 'not-measured':'dim', 'n/a':'dim' };
 
 function kv(k, state, detail, mono) {
   const chip = CHIP[state] || 'dim';
@@ -545,6 +554,12 @@ function render(r) {
       h += kv('origin binding', (v.originBinding||{}).state, (v.originBinding||{}).detail);
       h += kv('freshness', (v.freshness||{}).state, (v.freshness||{}).detail);
       if (v.door && v.door.advertised) h += kv('who answered', v.door.reached, v.door.detail);
+      if (v.terms && v.terms.state !== 'n/a') {
+        h += kv('terms before the knock', v.terms.state, v.terms.detail);
+        if (v.howTo && v.howTo.url) h += kv('how-to link', v.howTo.state, v.howTo.detail);
+        h += kv('the refusal teaches', (v.refusal||{}).state, (v.refusal||{}).detail);
+        h += kv('rate ceiling', (v.limits||{}).state, (v.limits||{}).detail);
+      }
     } else {
       h += '<p class="hint">No A2A agent card at the well-known path, so there is nothing here '
          + 'to verify. That is a fact about this site, not a fault.</p>';

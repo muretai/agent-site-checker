@@ -537,6 +537,80 @@ section('13. the attacks a red-team found — each one run against the product')
   eq(page.headers.get('x-content-type-options'), 'nosniff', 'and nosniff');
 }
 
+// ------------------------------ 15. guardrails: the terms before the knock, the refusal that teaches
+section('15. a guardrail is what the door DOES: terms stated before the knock, a refusal that teaches');
+{
+  // The conformant door: terms on the card, a how-to that resolves, a refusal that repeats the
+  // terms, and the one guardrail nobody can measure from outside named as such.
+  const site = await siteWithCard();
+  const r = await checkSite(site.origin, LOCAL);
+  const v = r.verification;
+  eq(v.terms.state, 'stated', 'the terms are stated on the card before anyone knocks');
+  eq(v.howTo.state, 'resolves', 'the how-to the terms point at resolves');
+  eq(v.refusal.state, 'teaches', 'the refusal repeats the terms and is complete without its URLs');
+  eq(v.refusal.code, -32001, 'and it is the signature refusal that was read');
+  eq(v.limits.state, 'not-measured', 'the aggregate ceiling is reported as NOT MEASURED, never guessed');
+  ok(/flood/.test(v.limits.detail), 'and the report says why it cannot be measured from outside');
+  eq(r.summary.failed.length, 0, 'a conformant door still fails nothing');
+  ok(/knock correctly on the second try/.test(r.verdict), 'the verdict says a stranger can knock correctly on the second try');
+  const door = r.interfaces.find((i) => i.kind === 'a2a-agent-entry');
+  ok(door?.termsStated === true && door?.refusalTeaches === true, 'the interface a visitor reads carries both facts');
+  const page = renderPage('');
+  ok(!/\bscore\b/i.test(JSON.stringify(r)), 'none of the new rows smuggles a score word in');
+  void page;
+  await site.close();
+
+  // Producer mutations — one lever each, one row changes, and the exit status is right.
+  const cases = [
+    ['no-terms',        (v) => v.terms.state === 'absent',    'terms: absent',
+      (r) => r.summary.failed.length === 0 && r.summary.warnings.some((w) => /states its terms/.test(w)),
+      'a WARN, not a FAIL: the door works, it just teaches by refusing', 'terms-absent'],
+    ['terms-partial',   (v) => v.terms.state === 'partial' && v.terms.missing.includes('canonicalization'), 'terms: partial (canonicalization missing)',
+      (r) => r.summary.failed.length === 0 && r.summary.warnings.some((w) => /states its terms/.test(w)), '', 'terms-partial'],
+    ['terms-recipient', (v) => v.terms.state === 'mismatch',  'terms: mismatch (recipient is not the card\'s DID)',
+      (r) => r.summary.failed.some((f) => /own DID as the recipient/.test(f)), 'a FAIL: every message a visitor addresses goes to a stranger', 'terms-recipient-mismatch'],
+    ['terms-string-example', (v) => v.terms.state === 'partial' && /exampleRequest/.test(v.terms.detail), 'terms: partial (exampleRequest is a string)',
+      (r) => r.summary.failed.length === 0, '', 'terms-partial'],
+    ['howto-dangling',  (v) => v.howTo.state === 'dangling',  'howTo: dangling',
+      (r) => r.summary.failed.some((f) => /how-to page/.test(f)), 'a FAIL: a dangling pointer out-competes the data beside it', 'howto-dangling'],
+    ['refusal-silent',  (v) => v.refusal.state === 'silent',  'refusal: silent',
+      (r) => r.summary.failed.length === 0 && r.summary.warnings.some((w) => /refusal teaches/.test(w)), 'a WARN', 'refusal-silent'],
+    ['refusal-drifted', (v) => v.refusal.state === 'drifted', 'refusal: drifted',
+      (r) => r.summary.failed.some((f) => /repeats the terms/.test(f)), 'a FAIL: menu and door disagree', 'refusal-drifted'],
+    ['refusal-url-only', (v) => v.refusal.state === 'incomplete' && v.terms.state === 'partial', 'refusal: incomplete (a pointer on both surfaces, not a recipe)',
+      (r) => r.summary.failed.length === 0 && r.summary.warnings.some((w) => /refusal teaches/.test(w)), 'a WARN', 'refusal-incomplete'],
+  ];
+  for (const [mutate, hit, label, statusCheck, why, remedy] of cases) {
+    const m = await siteWithCard({ mutate });
+    const mr = await checkSite(m.origin, LOCAL);
+    const mv = mr.verification;
+    ok(hit(mv), `${mutate} -> ${label}`,
+       JSON.stringify({ terms: mv.terms.state, howTo: mv.howTo.state, refusal: mv.refusal.state, detail: (mv.terms.detail || '').slice(0, 80) }));
+    ok(statusCheck(mr), `${mutate} -> the exit status is right${why ? ` (${why})` : ''}`,
+       JSON.stringify({ failed: mr.summary.failed, warnings: mr.summary.warnings }));
+    ok(mr.remedies.some((x) => x.id === remedy && x.kind === 'fix'), `${mutate} -> the ${remedy} fix is offered`);
+    // The mutation must not bleed: the signature, the binding and the door verdict stay green.
+    ok(mv.signature.state === 'verified' && mv.originBinding.state === 'proven' && mv.door.reached === 'door-answered',
+       `${mutate} -> signature, binding and door are untouched`);
+    await m.close();
+  }
+
+  // The no-terms door must not be reported as a DRIFT (there is nothing to drift from) and
+  // an unsigned card with terms still reads them: the two measurements are independent.
+  const unsigned = await siteWithCard({ mutate: 'no-signature' });
+  const u = await checkSite(unsigned.origin, LOCAL);
+  eq(u.verification.terms.state, 'stated', 'terms are read from an unsigned card too');
+  eq(u.verification.refusal.state, 'teaches', 'and its refusal is read too');
+  await unsigned.close();
+
+  // A bare site has no door, so no terms are expected — and nothing here is a fault.
+  const bare = await bareSite();
+  const b = await checkSite(bare.origin, LOCAL);
+  eq(b.verification.terms.state, 'n/a', 'no door, no terms expected');
+  ok(!b.remedies.some((x) => /^(terms|refusal|howto)/.test(x.id)), 'and no guardrail remedy is offered for a site with no door');
+  await bare.close();
+}
+
 // ------------------------------------------------ 14. the version a report prints is the truth
 section('14. the reported version cannot drift from the published one');
 {

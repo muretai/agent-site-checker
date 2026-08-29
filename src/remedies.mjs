@@ -50,6 +50,7 @@ const R = {
   agentsmd: { label: 'AGENTS.md', url: 'https://agents.md/' },
   sitemaps: { label: 'sitemaps.org protocol', url: 'https://www.sitemaps.org/protocol.html' },
   agentEntry: { label: 'Agent Entry — muretai docs', url: 'https://docs.muretai.com/guides/agent-entry/' },
+  aeSpec: { label: 'Agent Entry v1 specification (AE-8, AE-9, AE-24, AE-25, AE-28)', url: 'https://github.com/muretai/agent-entry/blob/main/spec/v1.md' },
   didkey: { label: 'did:key method', url: 'https://w3c-ccg.github.io/did-method-key/' },
 };
 
@@ -120,6 +121,156 @@ export const REMEDIES = {
       'Fix the re-signing job: whatever process holds the key should re-issue the envelope well',
       'inside the window and keep serving it at the same path. If nothing holds the key any',
       'more, that is the real finding — say so rather than back-dating a timestamp.',
+      '',
+      HONESTY,
+    ].join('\n'),
+  },
+
+  // ---------------------------------------------- the guardrails a door promises, and breaks
+  //
+  // Every entry here is a FIX: the door is published, and one of the things it does is not
+  // holding up. None of them asks a site to write a policy file — a guardrail is what the
+  // server does, and each prompt below changes what the server does.
+  'terms-recipient-mismatch': {
+    kind: 'fix',
+    title: 'The terms on the card name a recipient that is not the card\'s own DID',
+    resources: [R.aeSpec, R.a2a, R.didkey],
+    prompt: (c) => [
+      `The agent card at ${c.origin}/.well-known/agent-card.json names ${c.did || 'a did:key'} as its`,
+      `identity, but the terms it states under securitySchemes name a different recipient`,
+      `(${c.detail || 'another DID'}). A visitor builds the signed envelope FROM THE TERMS — recipient`,
+      'is the `to` it signs — so every message addressed as the terms say is addressed to somebody',
+      'else, and this door will refuse all of them as wrong-recipient.',
+      '',
+      'Build the card and the terms from ONE object so they cannot disagree: the recipient in the',
+      'terms must be the card\'s own DID, byte for byte. If two keys are really involved (a rotation',
+      'half done, a front desk answering for another agent), finish the rotation or publish the',
+      'other agent\'s card at its own address — do not leave a card that points visitors at a',
+      'stranger.',
+      '',
+      HONESTY,
+    ].join('\n'),
+  },
+
+  'terms-absent': {
+    kind: 'fix',
+    title: 'The card advertises an open door and states no terms',
+    resources: [R.aeSpec, R.a2a],
+    prompt: (c) => [
+      `The agent card at ${c.origin}/.well-known/agent-card.json advertises an open door`,
+      '(agentEntry.open_door) and says nothing about how to call it. Every visitor therefore learns',
+      'the requirement by being refused — and a visitor that arrives with no key, which is the normal',
+      'starting state, is refused with nothing to act on.',
+      '',
+      'State the terms on the card, before anyone knocks, as an A2A securitySchemes entry (and list',
+      'it under security). The object must carry at least: recipient (this card\'s own DID),',
+      'signedFields (exactly contextId, from, messageId, text, timestamp, to), canonicalization,',
+      'signature, timestamp (the freshness rule), in (where the envelope goes, e.g.',
+      'params.message.metadata), and exampleRequest as a NESTED JSON OBJECT — not a string containing',
+      'JSON, which has to be unescaped before it can be copied by exactly the visitors who most need',
+      'it. Optionally howTo: a URL that MUST resolve (a dangling pointer out-competes the data beside',
+      'it).',
+      '',
+      'If the door is an Agent Entry, the reference implementation already publishes all of this;',
+      'update it, or serve its card unchanged rather than a hand-edited copy.',
+      '',
+      HONESTY,
+    ].join('\n'),
+  },
+
+  'terms-partial': {
+    kind: 'fix',
+    title: 'The terms on the card are incomplete',
+    resources: [R.aeSpec, R.a2a],
+    prompt: (c) => [
+      `The terms under securitySchemes in ${c.origin}/.well-known/agent-card.json are stated, but`,
+      `not completely: ${c.detail || 'a required field is missing or malformed'}.`,
+      '',
+      'A visitor builds the signed envelope from these fields and nothing else. A missing',
+      'canonicalization rule means a guessed one, which produces a signature that never verifies;',
+      'signedFields that are not exactly the six frozen names (contextId, from, messageId, text,',
+      'timestamp, to) produce the same silent failure; an exampleRequest that is a JSON string has',
+      'to be unescaped before it can be copied.',
+      '',
+      'Complete the object — recipient, signedFields, canonicalization, signature, timestamp, in,',
+      'exampleRequest (a nested object) — and build it from the same source the door itself reads,',
+      'so the card and the refusal cannot drift apart.',
+      '',
+      HONESTY,
+    ].join('\n'),
+  },
+
+  'howto-dangling': {
+    kind: 'fix',
+    title: 'The how-to page the terms point at does not resolve',
+    resources: [R.aeSpec],
+    prompt: (c) => [
+      `The terms on ${c.origin}/.well-known/agent-card.json carry a howTo link`,
+      `(${c.detail || 'see the report'}) that does not resolve. A dangling pointer out-competes the`,
+      'data beside it: a visitor holding a complete, sufficient instruction object will follow the',
+      'broken link and stop there.',
+      '',
+      'Either make the page answer at that exact URL, or remove the howTo key entirely. Do not point',
+      'it at a placeholder. Nothing a signer needs may live only behind that link — the terms',
+      'themselves must stay a complete recipe.',
+      '',
+      HONESTY,
+    ].join('\n'),
+  },
+
+  'refusal-silent': {
+    kind: 'fix',
+    title: 'The door refuses an unsigned message without saying what it accepts',
+    resources: [R.aeSpec],
+    prompt: (c) => [
+      `The door at ${c.origin} answered an unsigned message/send with error -32001 and no`,
+      'data.accepts. That is the one refusal a walk-in visitor receives — no key yet, no metadata at',
+      'all — and it hands them nothing to act on.',
+      '',
+      'When metadata.from, to and sig are ALL absent, make the -32001 error carry data.accepts: a JSON',
+      'array whose first element is the same terms object the card publishes under securitySchemes,',
+      'verbatim. One object, two surfaces. The bar is behavioural: an agent holding only this refusal,',
+      'plus ordinary crypto tooling, can mint a did:key, sign correctly, and be answered on its next',
+      'POST — so the recipe must include the recipient, the six signed fields, the canonicalization',
+      'rule spelled out, the signature encoding, the timestamp rule and the identity derivation.',
+      '',
+      'Do NOT add data.accepts to a PARTIAL envelope (from and to present, sig stripped): whoever sent',
+      'that already holds a key and knows the shape, and there is no reason to hand a prober a map.',
+      '',
+      HONESTY,
+    ].join('\n'),
+  },
+
+  'refusal-drifted': {
+    kind: 'fix',
+    title: 'The refusal and the card advertise two different requirements',
+    resources: [R.aeSpec],
+    prompt: (c) => [
+      `The door at ${c.origin} refuses an unsigned message with -32001 and data.accepts, but`,
+      'data.accepts[0] is not the object the card publishes under securitySchemes. A visitor now',
+      'holds two recipes and cannot tell which is current; whichever it follows may be the stale one.',
+      '',
+      'Build the card\'s terms and the refusal\'s data.accepts from ONE object in code — never two',
+      'hand-maintained copies. If the card is served from a static file and the door from a process,',
+      'that is the drift: have the process write the card, or have the card be the process\'s source.',
+      '',
+      HONESTY,
+    ].join('\n'),
+  },
+
+  'refusal-incomplete': {
+    kind: 'fix',
+    title: 'The refusal is a pointer, not a recipe',
+    resources: [R.aeSpec],
+    prompt: (c) => [
+      `The door at ${c.origin} refuses an unsigned message with -32001 and data.accepts, but strip`,
+      `every URL out of data.accepts[0] and what remains no longer names ${c.detail || 'everything a signer needs'}.`,
+      '',
+      'A visitor must never depend on fetching a second document to answer the first. With every',
+      'URL-valued field removed, the object must still name: the recipient, the six signed fields',
+      '(contextId, from, messageId, text, timestamp, to), the canonicalization rule spelled out, the',
+      'signature encoding, the timestamp rule, and how the identity (did:key) is derived. A howTo link',
+      'may sit beside those; it may not replace them.',
       '',
       HONESTY,
     ].join('\n'),
@@ -482,6 +633,14 @@ export function remediesFor(result) {
   if (result.dnsAid?.found && result.dnsAid.dnssec?.state === 'unsigned') push('dnssec-unsigned-with-records');
   if (result.dnsAid?.dnssec?.state === 'incomplete') push('dnssec-incomplete');
   if (v.door?.reached === 'unknown') push('door-unknown', v.door.url);
+  // the guardrails a door promises: FAILs first, then the advisories
+  if (v.terms?.state === 'mismatch') push('terms-recipient-mismatch', v.terms.detail);
+  if (v.howTo?.state === 'dangling') push('howto-dangling', v.howTo.url);
+  if (v.refusal?.state === 'drifted') push('refusal-drifted');
+  if (v.terms?.state === 'absent') push('terms-absent');
+  if (v.terms?.state === 'partial') push('terms-partial', v.terms.detail);
+  if (v.refusal?.state === 'silent') push('refusal-silent');
+  if (v.refusal?.state === 'incomplete') push('refusal-incomplete', v.refusal.detail);
 
   // then absent
   if (!v.card?.present) push('agent-card');
