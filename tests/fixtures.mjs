@@ -157,11 +157,28 @@ export async function siteWithCard({ mutate = 'none', extras = {} } = {}) {
         // Byte-identical to what an entry's own decline looks like — which is the trap.
         return send(404, JSON.stringify({ error: 'not found' }));
       }
-      return send(200, JSON.stringify({
-        jsonrpc: '2.0', id: 'agent-site-checker',
-        error: { code: -32001, message: 'signature verification failed',
-                 ...(accepts ? { data: { accepts } } : {}) },
-      }));
+      // The door applies the wire-shape check BEFORE the signature check, as a real Agent
+      // Entry does (AE-18 row 5 before row 7): a knock without a string messageId is a
+      // malformed request (-32600), and the teaching refusal is never reached. The production
+      // door caught the checker on exactly this on 2026-08-29; the fixture now catches it too.
+      let raw = '';
+      req.on('data', (c) => { raw += c; });
+      req.on('end', () => {
+        let knock = null;
+        try { knock = JSON.parse(raw); } catch { knock = null; }
+        const msg = knock?.params?.message;
+        if (!msg || msg.kind !== 'message' || typeof msg.messageId !== 'string' || !msg.messageId
+            || !(msg.contextId === null || msg.contextId === undefined || typeof msg.contextId === 'string')) {
+          return send(200, JSON.stringify({ jsonrpc: '2.0', id: knock?.id ?? null,
+            error: { code: -32600, message: 'Invalid Request' } }));
+        }
+        return send(200, JSON.stringify({
+          jsonrpc: '2.0', id: 'agent-site-checker',
+          error: { code: -32001, message: 'signature verification failed',
+                   ...(accepts ? { data: { accepts } } : {}) },
+        }));
+      });
+      return undefined;
     }
     if (path === '/agent-entry/how-to' && req.method === 'GET') {
       return send(200, '<!doctype html><title>how to knock</title><p>Make a key, sign six fields.</p>', 'text/html; charset=utf-8');

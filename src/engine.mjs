@@ -29,6 +29,7 @@ import {
   AGENT_CARD_PATH, AGENT_CARD_PATH_LEGACY, AGENT_CARD_SIG_PATH, AGENT_ENTRY_REL,
   verifyCardEnvelope, canonicalJSON,
 } from '@muretai/agent-entry';
+import { randomUUID } from 'node:crypto';
 import { boundedFetch, normaliseInput, RefusedURL } from './guard.mjs';
 import { Report } from './report.mjs';
 import { dnsAid } from './dns.mjs';
@@ -441,9 +442,16 @@ export async function checkSite(input, { resolver = 'cloudflare', probeDoor = tr
         sameOriginOnly: originBase,     // the restriction above must survive a redirect
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        // A WELL-FORMED A2A message with NO metadata at all. The shape matters: an Agent Entry
+        // checks the wire shape (kind, a string messageId, contextId string-or-null) BEFORE it
+        // looks for a signature (spec v1 AE-18 row 5 precedes row 7), so a knock missing
+        // messageId is answered -32600 "Invalid Request" and the teaching refusal (-32001 with
+        // data.accepts, AE-24) is never reached. Measured on our own door, 2026-08-29: the
+        // fixture answered -32001 to a malformed knock, the production door -32600.
         body: JSON.stringify({
           jsonrpc: '2.0', id: 'agent-site-checker', method: 'message/send',
-          params: { message: { kind: 'message', role: 'user', parts: [{ kind: 'text', text: 'hello' }] } },
+          params: { message: { kind: 'message', role: 'user', messageId: randomUUID(), contextId: null,
+                               parts: [{ kind: 'text', text: 'hello' }] } },
         }),
       });
       const parsed = j(probe.body);
