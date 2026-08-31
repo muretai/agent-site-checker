@@ -558,12 +558,26 @@ export async function checkSite(input, { resolver = 'cloudflare', probeDoor = tr
     + 'mean it holds on the others');
 
   const pp = home.headers['permissions-policy'];
+  const toolsHeader = !!pp && /(^|[^a-z])tools\s*=/.test(pp);
+  const frontHttps = (() => {
+    try { return new URL(home.finalUrl).protocol === 'https:'; } catch { return false; }
+  })();
   result.facts.push({
     surface: 'Permissions-Policy: tools', url: checkBase + '/', status: home.status,
-    present: !!pp && /(^|[^a-z])tools\s*=/.test(pp),
+    present: toolsHeader,
     detail: pp ? `Permissions-Policy: ${pp}` : 'no Permissions-Policy header',
     why: 'whether WebMCP tools on the page may be reached from another origin at all',
   });
+  // WebMCP tools only exist in a secure context. Advertising them over HTTP is not an
+  // absence — it is a published surface that cannot work. Absence of the header stays a
+  // fact (never a grade); sending it on a non-HTTPS origin is a defect.
+  v.webmcp = { toolsHeader, https: frontHttps };
+  if (toolsHeader) {
+    rep.check(frontHttps, 'WebMCP tools are offered over HTTPS',
+      frontHttps ? ''
+        : 'Permissions-Policy: tools arrived on a non-HTTPS origin. WebMCP tools only exist '
+          + 'in a secure context, so this header cannot make a tool reachable.');
+  }
 
   // ---------------------------------------------------------------- 6. DNS-AID + DNSSEC
   result.dnsAid = dns

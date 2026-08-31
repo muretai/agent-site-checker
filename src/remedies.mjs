@@ -418,6 +418,20 @@ export const REMEDIES = {
     ].join('\n'),
   },
 
+  'webmcp-over-http': {
+    kind: 'fix',
+    title: 'WebMCP tools were advertised over HTTP',
+    resources: [{ label: 'WebMCP (W3C community group)', url: 'https://github.com/webmachinelearning/webmcp' }],
+    prompt: (c) => [
+      `${c.host} sent Permissions-Policy: tools on a non-HTTPS origin.`,
+      'WebMCP tools only exist in a secure context. Serve the page that registers',
+      'document.modelContext over HTTPS, and send the Permissions-Policy header on that',
+      'HTTPS response. An HTTP header cannot make a tool reachable.',
+      '',
+      HONESTY,
+    ].join('\n'),
+  },
+
   'Permissions-Policy: tools': {
     kind: 'add',
     title: 'Permissions-Policy: tools — required before any page tool is reachable',
@@ -482,6 +496,7 @@ export function remediesFor(result) {
   if (result.dnsAid?.found && result.dnsAid.dnssec?.state === 'unsigned') push('dnssec-unsigned-with-records');
   if (result.dnsAid?.dnssec?.state === 'incomplete') push('dnssec-incomplete');
   if (v.door?.reached === 'unknown') push('door-unknown', v.door.url);
+  if (v.webmcp?.toolsHeader && v.webmcp.https === false) push('webmcp-over-http');
 
   // then absent
   if (!v.card?.present) push('agent-card');

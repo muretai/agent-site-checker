@@ -1,28 +1,120 @@
 /**
  * tests/fixtures.mjs — sites to point the checker at.
  *
- * Every fixture is a REAL HTTP server on loopback, and the checker reaches it the way it
- * reaches anything else: over the network, through `checkSite`. No test calls a detection
- * function directly, because a test that imports the checker's internals only proves the
- * checker agrees with itself — which is exactly the discipline that would have caught a
- * feature shipping green with nothing in the product producing it.
+ * Every fixture is a REAL server on loopback (node:http, or node:https when the test is
+ * about TLS), and the checker reaches it the way it reaches anything else: over the
+ * network. No test of a new criterion may import a detection function, because a test that
+ * imports the checker's internals only proves the checker agrees with itself — which is
+ * exactly the discipline that would have caught a feature shipping green with nothing in
+ * the product producing it.
  */
 
-import { createServer } from 'node:http';
+import { createServer as createHttpServer } from 'node:http';
+import { createServer as createHttpsServer } from 'node:https';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { makeCardEnvelope, newSeedHex, didFromSeedHex } from '@muretai/agent-entry';
 
-/** Start a server on an arbitrary free port; returns {origin, close}. */
-export function serve(handler) {
+let cachedLoopbackTls = null;
+
+/**
+ * A self-signed cert for 127.0.0.1, minted the way a test run trusts one: the PEM is handed
+ * to the shipped checker as NODE_EXTRA_CA_CERTS. This is real TLS — not `http://` renamed.
+ */
+export function loopbackTls() {
+  if (cachedLoopbackTls) return cachedLoopbackTls;
+  const dir = mkdtempSync(join(tmpdir(), 'asc-tls-'));
+  const keyPath = join(dir, 'key.pem');
+  const certPath = join(dir, 'cert.pem');
+  const cnfPath = join(dir, 'openssl.cnf');
+  writeFileSync(cnfPath, [
+    '[req]',
+    'distinguished_name = req',
+    'prompt = no',
+    '[v3]',
+    'subjectAltName = IP:127.0.0.1',
+    'basicConstraints = critical,CA:TRUE',
+    'keyUsage = critical,keyCertSign,digitalSignature,keyEncipherment',
+    '',
+  ].join('\n'));
+  execFileSync('openssl', [
+    'req', '-x509', '-newkey', 'rsa:2048', '-sha256', '-days', '2',
+    '-nodes', '-keyout', keyPath, '-out', certPath,
+    '-subj', '/CN=127.0.0.1',
+    '-extensions', 'v3', '-config', cnfPath,
+  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+  cachedLoopbackTls = {
+    key: readFileSync(keyPath),
+    cert: readFileSync(certPath),
+    certPath,
+    dir,
+  };
+  return cachedLoopbackTls;
+}
+
+/**
+ * Start a server on an arbitrary free port; returns {origin, close}.
+ * Pass `tls` (from loopbackTls()) to speak real HTTPS on that port. Omit it and this is the
+ * original node:http loopback — existing card fixtures stay on that path.
+ */
+export function serve(handler, { tls = null } = {}) {
   return new Promise((resolve) => {
-    const server = createServer(handler);
+    const server = tls
+      ? createHttpsServer({ key: tls.key, cert: tls.cert }, handler)
+      : createHttpServer(handler);
     server.listen(0, '127.0.0.1', () => {
       const { port } = server.address();
       resolve({
-        origin: `http://127.0.0.1:${port}`,
+        origin: `${tls ? 'https' : 'http'}://127.0.0.1:${port}`,
         close: () => new Promise((r) => server.close(r)),
+        tls,
       });
     });
   });
+}
+
+/** The HTML a WebMCP-conformant page serves: registers on document.modelContext (webmcp#184)
+ *  and sets exposedTo. The Permissions-Policy: tools header is the other half, sent by the
+ *  handler — not this string. */
+const WEBMCP_PAGE = `<!doctype html>
+<title>webmcp fixture</title>
+<script>
+(function () {
+  const modelContext = document.modelContext;
+  if (!modelContext) return;
+  modelContext.registerTool({
+    name: 'fixture_ping',
+    description: 'a fixture tool',
+    inputSchema: { type: 'object', properties: {} },
+    async execute() { return { content: [{ type: 'text', text: 'pong' }] }; }
+  }, { exposedTo: ['https://check.muretai.com'] });
+})();
+</script>
+`;
+
+/**
+ * A site that produces the C1 surface: document.modelContext, exposedTo, Permissions-Policy:
+ * tools. `tls` is the producer lever — true speaks HTTPS, false neuters TLS and serves the
+ * same page over plain HTTP.
+ */
+export async function siteWithWebmcp({ tls = true } = {}) {
+  const material = tls ? loopbackTls() : null;
+  const handler = (req, res) => {
+    const path = req.url === '/' || req.url === '' ? '/' : req.url.split('?')[0];
+    if (path === '/') {
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Permissions-Policy': 'tools=(self)',
+      });
+      return res.end(WEBMCP_PAGE);
+    }
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'not found' }));
+  };
+  const ref = await serve(handler, { tls: material });
+  return { ...ref, certPath: material?.certPath ?? null };
 }
 
 /**
