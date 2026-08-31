@@ -75,46 +75,98 @@ export function serve(handler, { tls = null } = {}) {
   });
 }
 
-/** The HTML a WebMCP-conformant page serves: registers on document.modelContext (webmcp#184)
- *  and sets exposedTo. The Permissions-Policy: tools header is the other half, sent by the
- *  handler — not this string. */
-const WEBMCP_PAGE = `<!doctype html>
-<title>webmcp fixture</title>
-<script>
+/**
+ * Build the HTML a WebMCP fixture serves. `mutate` is one named lever, so a test can
+ * neuter exactly one producer and prove the intended check goes red.
+ *
+ *   none              — C1 conformant: document.modelContext, exposedTo, iframe allow=tools,
+ *                       valid inputSchema, POST form without toolautosubmit
+ *   no-header         — W3
+ *   no-allow          — W4
+ *   no-exposedTo      — W5
+ *   http              — W2 (also `tls: false`)
+ *   bad-schema        — W6
+ *   flip-autosubmit   — W7
+ *   navigator-only    — C3
+ *   provide-context   — C4
+ *   imperative-only   — C5
+ *   declarative-only  — C5
+ *   long-budgets      — C6
+ *   redirect          — C7 (same page, one hop)
+ */
+export function webmcpPage(mutate = 'none') {
+  const getter = mutate === 'navigator-only' ? 'navigator.modelContext' : 'document.modelContext';
+  const exposed = mutate === 'no-exposedTo' ? '' : ', { exposedTo: ["https://check.muretai.com"] }';
+  const schema = mutate === 'bad-schema'
+    ? '{"type":"not-a-schema"}'
+    : '{"type":"object","properties":{}}';
+  const name = mutate === 'long-budgets' ? 'n'.repeat(40) : 'fixture_ping';
+  const desc = mutate === 'long-budgets' ? 'd'.repeat(900) : 'a fixture tool';
+  const iframe = mutate === 'no-allow'
+    ? '<iframe src="https://tools.example/embed"></iframe>'
+    : '<iframe src="https://tools.example/embed" allow="tools"></iframe>';
+  const auto = mutate === 'flip-autosubmit' ? ' toolautosubmit' : '';
+  const form = mutate === 'imperative-only' ? ''
+    : `<form method="post" action="/submit" toolname="fixture_submit" tooldescription="submit the fixture form"${auto}><input type="text" name="q"><button type="submit">go</button></form>`;
+  let script = '';
+  if (mutate === 'declarative-only') {
+    script = '';
+  } else if (mutate === 'provide-context') {
+    script = `<script>
 (function () {
-  const modelContext = document.modelContext;
+  const modelContext = ${getter};
+  if (!modelContext) return;
+  modelContext.provideContext({ tools: [{ name: "old_api", description: "removed api", inputSchema: {"type":"object","properties":{}} }] });
+})();
+</script>`;
+  } else {
+    script = `<script>
+(function () {
+  const modelContext = ${getter};
   if (!modelContext) return;
   modelContext.registerTool({
-    name: 'fixture_ping',
-    description: 'a fixture tool',
-    inputSchema: { type: 'object', properties: {} },
-    async execute() { return { content: [{ type: 'text', text: 'pong' }] }; }
-  }, { exposedTo: ['https://check.muretai.com'] });
+    name: ${JSON.stringify(name)},
+    description: ${JSON.stringify(desc)},
+    inputSchema: ${schema},
+    async execute() { return { content: [{ type: "text", text: "pong" }] }; }
+  }${exposed});
 })();
-</script>
+</script>`;
+  }
+  return `<!doctype html>
+<title>webmcp fixture</title>
+${iframe}
+${form}
+${script}
 `;
+}
 
 /**
- * A site that produces the C1 surface: document.modelContext, exposedTo, Permissions-Policy:
- * tools. `tls` is the producer lever — true speaks HTTPS, false neuters TLS and serves the
- * same page over plain HTTP.
+ * A site that produces the WebMCP surface. `tls` / mutate `http` is the TLS producer.
+ * Every other mutate leaves TLS on and neuters one other producer.
  */
-export async function siteWithWebmcp({ tls = true } = {}) {
+export async function siteWithWebmcp({ tls = true, mutate = 'none' } = {}) {
+  if (mutate === 'http') tls = false;
   const material = tls ? loopbackTls() : null;
+  const html = webmcpPage(mutate);
+  const headers = { 'Content-Type': 'text/html; charset=utf-8' };
+  if (mutate !== 'no-header') headers['Permissions-Policy'] = 'tools=(self)';
   const handler = (req, res) => {
-    const path = req.url === '/' || req.url === '' ? '/' : req.url.split('?')[0];
-    if (path === '/') {
-      res.writeHead(200, {
-        'Content-Type': 'text/html; charset=utf-8',
-        'Permissions-Policy': 'tools=(self)',
-      });
-      return res.end(WEBMCP_PAGE);
+    const path = (req.url || '/').split('?')[0];
+    const sendPage = () => {
+      res.writeHead(200, headers);
+      res.end(html);
+    };
+    if (mutate === 'redirect' && path === '/') {
+      res.writeHead(302, { Location: '/landed' });
+      return res.end();
     }
+    if (path === '/' || path === '/landed') return sendPage();
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'not found' }));
   };
   const ref = await serve(handler, { tls: material });
-  return { ...ref, certPath: material?.certPath ?? null };
+  return { ...ref, certPath: material?.certPath ?? null, mutate };
 }
 
 /**

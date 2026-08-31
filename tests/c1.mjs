@@ -8,14 +8,11 @@
  * server over the network. Assertions are exit status and --json only.
  * This file does not import the checker's detection functions.
  *
- * C2–C9 are not claimed here.
+ * C2–C9 live in tests/t123.mjs.
  */
 
-import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
 import { siteWithWebmcp } from './fixtures.mjs';
-
-const CLI = fileURLToPath(new URL('../bin/agent-site-checker.mjs', import.meta.url));
+import { runShippedChecker, checkerEnv } from './spawn-checker.mjs';
 
 let passed = 0;
 const failures = [];
@@ -24,32 +21,11 @@ function ok(cond, label, detail = '') {
   else { failures.push(label); console.log(`  FAIL ${label}${detail ? `  (${detail})` : ''}`); }
 }
 
-function runShippedChecker(origin, extraEnv = {}) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [
-      CLI, '--json', '--allow-private', '--no-dns', origin,
-    ], {
-      env: { ...process.env, ...extraEnv },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    let stdout = '', stderr = '';
-    child.stdout.on('data', (c) => { stdout += c; });
-    child.stderr.on('data', (c) => { stderr += c; });
-    child.on('error', reject);
-    child.on('close', (code) => {
-      let json = null;
-      try { json = JSON.parse(stdout); } catch { /* leave null — the assertion will fail */ }
-      resolve({ code, json, stdout, stderr });
-    });
-  });
-}
-
 console.log('\n=== T123 C1 — conformant WebMCP fixture over real TLS ===');
 
 {
   const site = await siteWithWebmcp({ tls: true });
-  const extraEnv = site.certPath ? { NODE_EXTRA_CA_CERTS: site.certPath } : {};
-  const { code, json } = await runShippedChecker(site.origin, extraEnv);
+  const { code, json } = await runShippedChecker(site.origin, checkerEnv(site));
   ok(code === 0, 'C1: shipped checker exits 0', `exit ${code}`);
   ok(Array.isArray(json?.summary?.failed) && json.summary.failed.length === 0,
      'C1: --json summary.failed is 0',

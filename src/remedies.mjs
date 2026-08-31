@@ -423,10 +423,81 @@ export const REMEDIES = {
     title: 'WebMCP tools were advertised over HTTP',
     resources: [{ label: 'WebMCP (W3C community group)', url: 'https://github.com/webmachinelearning/webmcp' }],
     prompt: (c) => [
-      `${c.host} sent Permissions-Policy: tools on a non-HTTPS origin.`,
+      `${c.host} claimed WebMCP on a non-HTTPS origin.`,
       'WebMCP tools only exist in a secure context. Serve the page that registers',
       'document.modelContext over HTTPS, and send the Permissions-Policy header on that',
       'HTTPS response. An HTTP header cannot make a tool reachable.',
+      '',
+      HONESTY,
+    ].join('\n'),
+  },
+  'webmcp-no-header': {
+    kind: 'fix',
+    title: 'WebMCP tools were registered without Permissions-Policy: tools',
+    resources: [{ label: 'WebMCP (W3C community group)', url: 'https://github.com/webmachinelearning/webmcp' }],
+    prompt: (c) => [
+      `${c.host} registers tools but the response that served the page did not send`,
+      'Permissions-Policy: tools. Without that header a visiting agent is not permitted to',
+      'call them.',
+      '',
+      HONESTY,
+    ].join('\n'),
+  },
+  'webmcp-no-allow-tools': {
+    kind: 'fix',
+    title: 'A cross-origin iframe is missing allow="tools"',
+    resources: [{ label: 'WebMCP (W3C community group)', url: 'https://github.com/webmachinelearning/webmcp' }],
+    prompt: (c) => [
+      `${c.host} embeds a cross-origin iframe without allow="tools". Tool registration in that`,
+      'frame is gated off. Add allow="tools" only for frames that should expose tools.',
+      '',
+      HONESTY,
+    ].join('\n'),
+  },
+  'webmcp-no-exposedTo': {
+    kind: 'fix',
+    title: 'registerTool was called without exposedTo',
+    resources: [{ label: 'WebMCP (W3C community group)', url: 'https://github.com/webmachinelearning/webmcp' }],
+    prompt: (c) => [
+      `${c.host} calls registerTool without exposedTo. Name the secure origins that may see`,
+      'the tool, or leave it same-origin only on purpose — but a missing exposedTo on a tool',
+      'you meant to share is a silent dead end.',
+      '',
+      HONESTY,
+    ].join('\n'),
+  },
+  'webmcp-bad-schema': {
+    kind: 'fix',
+    title: 'inputSchema is not a JSON Schema object',
+    resources: [{ label: 'WebMCP (W3C community group)', url: 'https://github.com/webmachinelearning/webmcp' }],
+    prompt: (c) => [
+      `${c.host} published an inputSchema that is not a JSON Schema object (type: object).`,
+      'registerTool rejects an invalid schema. Fix the schema; do not invent properties the',
+      'execute function does not read.',
+      '',
+      HONESTY,
+    ].join('\n'),
+  },
+  'webmcp-autosubmit': {
+    kind: 'fix',
+    title: 'A mutating declarative tool sets toolautosubmit',
+    resources: [{ label: 'WebMCP (W3C community group)', url: 'https://github.com/webmachinelearning/webmcp' }],
+    prompt: (c) => [
+      `${c.host} has a POST form marked as a WebMCP tool with toolautosubmit. An agent can`,
+      'then submit a state change unattended. Remove toolautosubmit so a person confirms, or',
+      'change the form so it does not mutate state.',
+      '',
+      HONESTY,
+    ].join('\n'),
+  },
+  'webmcp-provide-context': {
+    kind: 'fix',
+    title: 'provideContext() is REMOVED from the specification',
+    resources: [{ label: 'WebMCP (W3C community group)', url: 'https://github.com/webmachinelearning/webmcp' }],
+    prompt: (c) => [
+      `${c.host} calls provideContext(). That method was REMOVED from the WebMCP specification`,
+      '(webmcp#132), not merely deprecated. Register each tool with',
+      'document.modelContext.registerTool and an AbortSignal if it must go away later.',
       '',
       HONESTY,
     ].join('\n'),
@@ -496,7 +567,13 @@ export function remediesFor(result) {
   if (result.dnsAid?.found && result.dnsAid.dnssec?.state === 'unsigned') push('dnssec-unsigned-with-records');
   if (result.dnsAid?.dnssec?.state === 'incomplete') push('dnssec-incomplete');
   if (v.door?.reached === 'unknown') push('door-unknown', v.door.url);
-  if (v.webmcp?.toolsHeader && v.webmcp.https === false) push('webmcp-over-http');
+  if (v.webmcp?.failed?.includes('W2')) push('webmcp-over-http');
+  if (v.webmcp?.failed?.includes('W3')) push('webmcp-no-header');
+  if (v.webmcp?.failed?.includes('W4')) push('webmcp-no-allow-tools');
+  if (v.webmcp?.failed?.includes('W5')) push('webmcp-no-exposedTo');
+  if (v.webmcp?.failed?.includes('W6')) push('webmcp-bad-schema');
+  if (v.webmcp?.failed?.includes('W7')) push('webmcp-autosubmit');
+  if (v.webmcp?.provideContext) push('webmcp-provide-context');
 
   // then absent
   if (!v.card?.present) push('agent-card');

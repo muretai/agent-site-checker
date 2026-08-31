@@ -1,6 +1,6 @@
 {
   "name": "@muretai/agent-site-checker",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Verify what a website tells AI agents: follow the DNS and HTTP signposts, then check whether what is at the end is real — the agent card's signature, the DID's claim on the origin, and whether anything reached the door at all.",
   "type": "module",
   "license": "MIT",
@@ -33,7 +33,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node tests/run.mjs && node tests/c1.mjs",
+    "test": "node tests/run.mjs && node tests/c1.mjs && node tests/t123.mjs",
     "verify:live": "node tests/verify-live.mjs",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy"
