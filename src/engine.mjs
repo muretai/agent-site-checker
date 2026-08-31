@@ -33,10 +33,13 @@ import { boundedFetch, normaliseInput, RefusedURL } from './guard.mjs';
 import { Report } from './report.mjs';
 import { dnsAid } from './dns.mjs';
 import { remediesFor } from './remedies.mjs';
+import { analyzeWebmcp, applyWebmcpChecks, CORPUS } from './webmcp.mjs';
 
 // Kept in step with package.json by hand — a checker that misreports which build
 // produced a verdict cannot be argued with, and every report prints this.
-export const VERSION = '0.2.1';
+export const VERSION = '0.3.0';
+
+const corpusPub = () => ({ count: CORPUS.count, headline: CORPUS.headline, sites: CORPUS.sites });
 
 /** What a visitor enforces before it will speak to a door: a signed card older than this is
  *  refused. Mirrors muretai's `Outbox.CARD_SIG_MAX_AGE`. It is the only check that can tell a
@@ -166,6 +169,7 @@ export async function checkSite(input, { resolver = 'cloudflare', probeDoor = tr
       refused: e instanceof RefusedURL ? e.reason : String(e),
       reachable: false,
       rows: [], summary: { passed: 0, failed: [], warnings: [] },
+      webmcpCorpus: corpusPub(),
     };
   }
 
@@ -182,6 +186,7 @@ export async function checkSite(input, { resolver = 'cloudflare', probeDoor = tr
     rows: [],
     summary: null,
     verdict: null,
+    webmcpCorpus: corpusPub(),
   };
 
   // ---------------------------------------------------------------- 0. does the page load?
@@ -558,12 +563,18 @@ export async function checkSite(input, { resolver = 'cloudflare', probeDoor = tr
     + 'mean it holds on the others');
 
   const pp = home.headers['permissions-policy'];
+  const toolsHeader = !!pp && /(^|[^a-z])tools\s*=/.test(pp);
   result.facts.push({
     surface: 'Permissions-Policy: tools', url: checkBase + '/', status: home.status,
-    present: !!pp && /(^|[^a-z])tools\s*=/.test(pp),
+    present: toolsHeader,
     detail: pp ? `Permissions-Policy: ${pp}` : 'no Permissions-Policy header',
     why: 'whether WebMCP tools on the page may be reached from another origin at all',
   });
+  // CLI-side WebMCP read of the document that arrived. No browser is launched (the
+  // Worker must never grow a farm; Playwright is not a dependency). W2–W7 fire only
+  // when the page claims the surface — absence is still not a fault.
+  v.webmcp = analyzeWebmcp(home.body, { finalUrl: home.finalUrl, toolsHeader });
+  applyWebmcpChecks(rep, v.webmcp);
 
   // ---------------------------------------------------------------- 6. DNS-AID + DNSSEC
   result.dnsAid = dns
@@ -673,5 +684,12 @@ export function verdictSentence(r) {
   parts.push(present.length
     ? `Also published, reported as facts and not graded: ${present.join(', ')}.`
     : 'No other agent-facing surface was found at the usual paths.');
+  const w = v.webmcp;
+  if (w?.examined) {
+    parts.push(`WebMCP: browser ${w.browser?.build || 'not launched'}; flag ${w.browser?.flag || ''}; `
+      + `final URL ${w.finalUrl || r.target?.finalUrl || r.target?.url}; `
+      + `tools enumerated from ${w.enumeratedFrom || 'the document that arrived'}.`);
+    if (w.corpus) parts.push(`WebMCP public corpus: ${w.corpus.headline}.`);
+  }
   return parts.join(' ');
 }

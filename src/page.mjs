@@ -549,6 +549,10 @@ function render(r) {
       h += '<p class="hint">No A2A agent card at the well-known path, so there is nothing here '
          + 'to verify. That is a fact about this site, not a fault.</p>';
     }
+    if (v.webmcp?.claimed) {
+      h += kv('WebMCP getter', v.webmcp.getter || 'none',
+        (v.webmcp.browser && v.webmcp.browser.flag) || '');
+    }
     const d = r.dnsAid || {};
     h += kv('DNS zone', (d.dnssec||{}).state, (d.dnssec||{}).detail);
     h += kv('DNS-AID records', d.found ? 'present' : 'absent',

@@ -1,28 +1,172 @@
 /**
  * tests/fixtures.mjs — sites to point the checker at.
  *
- * Every fixture is a REAL HTTP server on loopback, and the checker reaches it the way it
- * reaches anything else: over the network, through `checkSite`. No test calls a detection
- * function directly, because a test that imports the checker's internals only proves the
- * checker agrees with itself — which is exactly the discipline that would have caught a
- * feature shipping green with nothing in the product producing it.
+ * Every fixture is a REAL server on loopback (node:http, or node:https when the test is
+ * about TLS), and the checker reaches it the way it reaches anything else: over the
+ * network. No test of a new criterion may import a detection function, because a test that
+ * imports the checker's internals only proves the checker agrees with itself — which is
+ * exactly the discipline that would have caught a feature shipping green with nothing in
+ * the product producing it.
  */
 
-import { createServer } from 'node:http';
+import { createServer as createHttpServer } from 'node:http';
+import { createServer as createHttpsServer } from 'node:https';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { makeCardEnvelope, newSeedHex, didFromSeedHex } from '@muretai/agent-entry';
 
-/** Start a server on an arbitrary free port; returns {origin, close}. */
-export function serve(handler) {
+let cachedLoopbackTls = null;
+
+/**
+ * A self-signed cert for 127.0.0.1, minted the way a test run trusts one: the PEM is handed
+ * to the shipped checker as NODE_EXTRA_CA_CERTS. This is real TLS — not `http://` renamed.
+ */
+export function loopbackTls() {
+  if (cachedLoopbackTls) return cachedLoopbackTls;
+  const dir = mkdtempSync(join(tmpdir(), 'asc-tls-'));
+  const keyPath = join(dir, 'key.pem');
+  const certPath = join(dir, 'cert.pem');
+  const cnfPath = join(dir, 'openssl.cnf');
+  writeFileSync(cnfPath, [
+    '[req]',
+    'distinguished_name = req',
+    'prompt = no',
+    '[v3]',
+    'subjectAltName = IP:127.0.0.1',
+    'basicConstraints = critical,CA:TRUE',
+    'keyUsage = critical,keyCertSign,digitalSignature,keyEncipherment',
+    '',
+  ].join('\n'));
+  execFileSync('openssl', [
+    'req', '-x509', '-newkey', 'rsa:2048', '-sha256', '-days', '2',
+    '-nodes', '-keyout', keyPath, '-out', certPath,
+    '-subj', '/CN=127.0.0.1',
+    '-extensions', 'v3', '-config', cnfPath,
+  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+  cachedLoopbackTls = {
+    key: readFileSync(keyPath),
+    cert: readFileSync(certPath),
+    certPath,
+    dir,
+  };
+  return cachedLoopbackTls;
+}
+
+/**
+ * Start a server on an arbitrary free port; returns {origin, close}.
+ * Pass `tls` (from loopbackTls()) to speak real HTTPS on that port. Omit it and this is the
+ * original node:http loopback — existing card fixtures stay on that path.
+ */
+export function serve(handler, { tls = null } = {}) {
   return new Promise((resolve) => {
-    const server = createServer(handler);
+    const server = tls
+      ? createHttpsServer({ key: tls.key, cert: tls.cert }, handler)
+      : createHttpServer(handler);
     server.listen(0, '127.0.0.1', () => {
       const { port } = server.address();
       resolve({
-        origin: `http://127.0.0.1:${port}`,
+        origin: `${tls ? 'https' : 'http'}://127.0.0.1:${port}`,
         close: () => new Promise((r) => server.close(r)),
+        tls,
       });
     });
   });
+}
+
+/**
+ * Build the HTML a WebMCP fixture serves. `mutate` is one named lever, so a test can
+ * neuter exactly one producer and prove the intended check goes red.
+ *
+ *   none              — C1 conformant: document.modelContext, exposedTo, iframe allow=tools,
+ *                       valid inputSchema, POST form without toolautosubmit
+ *   no-header         — W3
+ *   no-allow          — W4
+ *   no-exposedTo      — W5
+ *   http              — W2 (also `tls: false`)
+ *   bad-schema        — W6
+ *   flip-autosubmit   — W7
+ *   navigator-only    — C3
+ *   provide-context   — C4
+ *   imperative-only   — C5
+ *   declarative-only  — C5
+ *   long-budgets      — C6
+ *   redirect          — C7 (same page, one hop)
+ */
+export function webmcpPage(mutate = 'none') {
+  const getter = mutate === 'navigator-only' ? 'navigator.modelContext' : 'document.modelContext';
+  const exposed = mutate === 'no-exposedTo' ? '' : ', { exposedTo: ["https://check.muretai.com"] }';
+  const schema = mutate === 'bad-schema'
+    ? '{"type":"not-a-schema"}'
+    : '{"type":"object","properties":{}}';
+  const name = mutate === 'long-budgets' ? 'n'.repeat(40) : 'fixture_ping';
+  const desc = mutate === 'long-budgets' ? 'd'.repeat(900) : 'a fixture tool';
+  const iframe = mutate === 'no-allow'
+    ? '<iframe src="https://tools.example/embed"></iframe>'
+    : '<iframe src="https://tools.example/embed" allow="tools"></iframe>';
+  const auto = mutate === 'flip-autosubmit' ? ' toolautosubmit' : '';
+  const form = mutate === 'imperative-only' ? ''
+    : `<form method="post" action="/submit" toolname="fixture_submit" tooldescription="submit the fixture form"${auto}><input type="text" name="q"><button type="submit">go</button></form>`;
+  let script = '';
+  if (mutate === 'declarative-only') {
+    script = '';
+  } else if (mutate === 'provide-context') {
+    script = `<script>
+(function () {
+  const modelContext = ${getter};
+  if (!modelContext) return;
+  modelContext.provideContext({ tools: [{ name: "old_api", description: "removed api", inputSchema: {"type":"object","properties":{}} }] });
+})();
+</script>`;
+  } else {
+    script = `<script>
+(function () {
+  const modelContext = ${getter};
+  if (!modelContext) return;
+  modelContext.registerTool({
+    name: ${JSON.stringify(name)},
+    description: ${JSON.stringify(desc)},
+    inputSchema: ${schema},
+    async execute() { return { content: [{ type: "text", text: "pong" }] }; }
+  }${exposed});
+})();
+</script>`;
+  }
+  return `<!doctype html>
+<title>webmcp fixture</title>
+${iframe}
+${form}
+${script}
+`;
+}
+
+/**
+ * A site that produces the WebMCP surface. `tls` / mutate `http` is the TLS producer.
+ * Every other mutate leaves TLS on and neuters one other producer.
+ */
+export async function siteWithWebmcp({ tls = true, mutate = 'none' } = {}) {
+  if (mutate === 'http') tls = false;
+  const material = tls ? loopbackTls() : null;
+  const html = webmcpPage(mutate);
+  const headers = { 'Content-Type': 'text/html; charset=utf-8' };
+  if (mutate !== 'no-header') headers['Permissions-Policy'] = 'tools=(self)';
+  const handler = (req, res) => {
+    const path = (req.url || '/').split('?')[0];
+    const sendPage = () => {
+      res.writeHead(200, headers);
+      res.end(html);
+    };
+    if (mutate === 'redirect' && path === '/') {
+      res.writeHead(302, { Location: '/landed' });
+      return res.end();
+    }
+    if (path === '/' || path === '/landed') return sendPage();
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'not found' }));
+  };
+  const ref = await serve(handler, { tls: material });
+  return { ...ref, certPath: material?.certPath ?? null, mutate };
 }
 
 /**
