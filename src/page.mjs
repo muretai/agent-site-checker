@@ -503,8 +503,8 @@ form.ask input { flex:1; }
       </div>
       <div>
         <h4>Open</h4>
-        <p style="margin:0">The checks run on the wire layer every door carries —
-          <code>agent-wire</code>, vendored here byte for byte. Same bytes, same answers.</p>
+        <p style="margin:0">The checks run on the seam every door carries — the wire layer,
+          <code>agent-seam</code>, vendored here byte for byte. Same bytes, same answers.</p>
       </div>
       <div>
         <h4>Contact</h4>

@@ -33,7 +33,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node tests/check-wire.mjs && node tests/run.mjs",
+    "test": "node tests/check-seam.mjs && node tests/run.mjs",
     "verify:live": "node tests/verify-live.mjs",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy"

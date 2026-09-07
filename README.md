@@ -185,13 +185,15 @@ production site.
 
 ## How it works
 
-The verification is the **wire layer** of Agent Entry — canonical JSON, `did:key` and the
-signed card envelope — vendored as `src/wire.mjs` from
-[agent-wire](https://github.com/muretai/agent-wire), which publishes those bytes on their own.
-They are the same bytes the doors this tool checks carry inside them, so the checker and the
-thing checked cannot drift apart, and `npm test` says so: `tests/check-wire.mjs` pins the copy
-to a recorded digest, and to agent-wire itself when that repository is checked out beside this
-one. Everything else is the standard library and `fetch` — this package has no dependencies.
+The verification is the **seam** of Agent Entry — its wire layer: canonical JSON, `did:key` and
+the signed card envelope — vendored as `src/seam.mjs` from
+[agent-seam](https://github.com/muretai/agent-seam), the seam's home, which publishes those bytes
+on their own (the repository was named agent-wire until 2026-09-07). They are the same bytes the
+doors this tool checks carry inside them, so the checker and the thing checked cannot drift
+apart, and `npm test` says so: `tests/check-seam.mjs` pins the copy to a recorded digest, and —
+when agent-seam is checked out beside this one — to the exact commit it was taken from, saying
+how many commits behind that checkout the pin is. Everything else is the standard library and
+`fetch` — this package has no dependencies.
 
 ```
 src/guard.mjs    the URL guard and the bounded fetch — the only code that opens a
