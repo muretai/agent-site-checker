@@ -9,7 +9,7 @@
  */
 
 import { createServer } from 'node:http';
-import { makeCardEnvelope, newSeedHex, didFromSeedHex } from '@muretai/agent-entry';
+import { makeCardEnvelope, newSeedHex, didFromSeedHex } from '../src/wire.mjs';
 
 /** Start a server on an arbitrary free port; returns {origin, close}. */
 export function serve(handler) {

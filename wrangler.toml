@@ -29,8 +29,8 @@ main = "src/worker.mjs"
 # lost the exports to the pipe's subshell and went out under the wrong identity. Source the
 # switcher WITHOUT a pipe.
 compatibility_date = "2026-07-01"
-# nodejs_compat: the verification code is @muretai/agent-entry, which uses node:crypto and
-# Buffer for Ed25519.
+# nodejs_compat: the verification code is src/wire.mjs (the wire layer of Agent Entry,
+# vendored from agent-wire), which uses node:crypto and Buffer for Ed25519.
 #
 # global_fetch_strictly_public IS LOAD-BEARING AND MUST NEVER BE REMOVED. Without it, a
 # Worker's subrequest to a hostname on its OWN zone is routed straight to the zone's origin

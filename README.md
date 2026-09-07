@@ -185,9 +185,13 @@ production site.
 
 ## How it works
 
-The verification is the published [`@muretai/agent-entry`](https://www.npmjs.com/package/@muretai/agent-entry)
-library — the same code that builds the doors it checks, so the checker and the thing
-checked cannot drift apart. Everything else is the standard library and `fetch`.
+The verification is the **wire layer** of Agent Entry — canonical JSON, `did:key` and the
+signed card envelope — vendored as `src/wire.mjs` from
+[agent-wire](https://github.com/muretai/agent-wire), which publishes those bytes on their own.
+They are the same bytes the doors this tool checks carry inside them, so the checker and the
+thing checked cannot drift apart, and `npm test` says so: `tests/check-wire.mjs` pins the copy
+to a recorded digest, and to agent-wire itself when that repository is checked out beside this
+one. Everything else is the standard library and `fetch` — this package has no dependencies.
 
 ```
 src/guard.mjs    the URL guard and the bounded fetch — the only code that opens a

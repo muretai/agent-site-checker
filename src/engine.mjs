@@ -28,7 +28,7 @@
 import {
   AGENT_CARD_PATH, AGENT_CARD_PATH_LEGACY, AGENT_CARD_SIG_PATH, AGENT_ENTRY_REL,
   verifyCardEnvelope, canonicalJSON,
-} from '@muretai/agent-entry';
+} from './wire.mjs';
 import { randomUUID } from 'node:crypto';
 import { boundedFetch, normaliseInput, RefusedURL } from './guard.mjs';
 import { Report } from './report.mjs';
