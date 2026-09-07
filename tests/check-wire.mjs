@@ -26,8 +26,8 @@ import { dirname, join, resolve } from 'node:path';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-/** sha256 of agent-wire's js/wire.mjs as vendored on 2026-09-07 (agent-wire main 9f0c648). */
-const EXPECTED = '21fbf01e6538f49059b88f9c32662c67fae133b7d8ec6cd28ec89d917aab61e1';
+/** sha256 of agent-wire's js/wire.mjs as vendored on 2026-09-07 (agent-wire main 90f4c8f). */
+const EXPECTED = 'f6bf9e611f8f4245bbe47849944b865b29e0fd95cdbee0c34f4b6903210d197f';
 
 const mine = readFileSync(join(ROOT, 'src', 'wire.mjs'));
 const got = createHash('sha256').update(mine).digest('hex');
