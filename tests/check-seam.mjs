@@ -41,12 +41,12 @@ import { dirname, join, resolve } from 'node:path';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-/** agent-seam v0.2.0 (201ab05): js/seam.mjs as vendored on 2026-09-07. Written by hand from the
+/** agent-seam v0.2.0 (f93d595): js/seam.mjs as vendored on 2026-09-07. Written by hand from the
  *  commands in the header; tests/check-seam.mjs (this file) holds src/seam.mjs to these. */
-const PINNED_REF = 'v0.2.0';
-const PINNED_COMMIT = '201ab05e93745864e02a8476d75bf41e87725f16';
-const PINNED_VERSION = '0.2.0';
-const PINNED_DATE = '2026-09-07';
+const PINNED_REF = 'v0.2.1';
+const PINNED_COMMIT = 'f93d595ec02d007ca5fff80b583cc1710d4d1734';
+const PINNED_VERSION = '0.2.1';
+const PINNED_DATE = '2026-09-08';
 const PINNED_SOURCE = 'js/seam.mjs';
 /** sha256 of src/seam.mjs as written at that commit. */
 const EXPECTED = '01878be5b0b4954c089e9e5cc9d5da155060924660b88736f8537f23cdc2e272';
