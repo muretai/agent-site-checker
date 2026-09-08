@@ -41,15 +41,15 @@ import { dirname, join, resolve } from 'node:path';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-/** agent-seam v0.2.0 (f93d595): js/seam.mjs as vendored on 2026-09-07. Written by hand from the
+/** agent-seam v0.3.0 (dcefaae): js/seam.mjs as vendored on 2026-09-08. Written by hand from the
  *  commands in the header; tests/check-seam.mjs (this file) holds src/seam.mjs to these. */
-const PINNED_REF = 'v0.2.2';
-const PINNED_COMMIT = 'c5f5fc505ec3e7961449a5966464d2840efdf2f1';
-const PINNED_VERSION = '0.2.2';
+const PINNED_REF = 'v0.3.0';
+const PINNED_COMMIT = 'dcefaaecb7b92e222af820fca45bc56f90e22016';
+const PINNED_VERSION = '0.3.0';
 const PINNED_DATE = '2026-09-08';
 const PINNED_SOURCE = 'js/seam.mjs';
 /** sha256 of src/seam.mjs as written at that commit. */
-const EXPECTED = '887199c4d4114f1a7ca156da022d6be42c8a31dce46544a1734ef93a42734e56';
+const EXPECTED = '8c8d04d8c59cec2aae2337e9d8ef90361b199c0b969dd1ea9c0741b318f6dbf7';
 
 const sha = (b) => createHash('sha256').update(b).digest('hex');
 let pass = 0;
