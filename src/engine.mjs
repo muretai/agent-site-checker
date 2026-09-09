@@ -195,7 +195,16 @@ export async function checkSite(input, { resolver = 'cloudflare', probeDoor = tr
   const home = await boundedFetch(base + '/', { allowPrivate, deadline, headers: { Accept: 'text/html,*/*' } });
   result.target.finalUrl = home.finalUrl;
   result.target.redirects = home.redirects;
-  if (home.status === null) {
+  // A REFUSAL IS NOT AN ANSWER EITHER, AND IT ARRIVES WITH A STATUS ON IT.
+  //
+  // This gate read `home.status === null`, which is every transport failure — but not the one
+  // case where the guard did its job. A refused redirect returns the REDIRECT's own status
+  // (302) alongside `error`, so a site whose front page bounced into private space sailed past
+  // this gate and was reported "the site answered HTTP 302 ... door: absent". That is exactly
+  // the confusion the paragraph above says is the worst thing a checker can print: we never
+  // loaded a page, so we measured nothing, and "door: absent" is a finding we did not make.
+  // Any `error` is terminal here; the reason is printed, so the report says who refused and why.
+  if (home.status === null || home.error) {
     rep.check(false, 'the site answered at all', home.error || 'no response');
     result.rows = rep.rows;
     result.summary = rep.summary();

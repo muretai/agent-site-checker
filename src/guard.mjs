@@ -159,6 +159,25 @@ export async function boundedFetch(url, {
   const redirects = [];
   let method_ = method, body_ = body;
   let current = guardURL(url instanceof URL ? url.href : url, { allowPrivate });
+  // WHAT `allowPrivate` VOUCHES FOR IS ONE MACHINE: the one the caller named, and no other.
+  //
+  // The flag's whole stated purpose (see guardURL) is "a site owner running the CLI against
+  // their own dev server". That is a statement about an address the operator typed and can see.
+  // It is NOT a statement about wherever that server later points — a redirect is the REMOTE
+  // end choosing the next address, and nobody vouched for its judgment. Carrying the allowance
+  // into the hop turned `--allow-private` into "follow this stranger anywhere", and a dev box
+  // in CI answering `302 -> http://169.254.169.254/` handed over cloud credentials on a flag
+  // whose documented meaning was "my laptop".
+  //
+  // So the allowance is scoped to the vouched HOST: a hop that stays on that machine keeps it
+  // (the ordinary `/` -> `/en/` and trailing-slash redirects a dev server makes), and a hop
+  // that leaves it is re-validated under the full guard like any other stranger's URL.
+  // Scoped by host and not by origin on purpose: `allowPrivate` already grants every port on
+  // that machine, so a hop to another port there is no new capability. The known cost is that
+  // `localhost` -> `127.0.0.1` is two hosts to this rule and the second is refused; spelling
+  // the entry URL the way the server redirects is the workaround, and narrowing the vouch is
+  // the right way to be wrong.
+  const vouchedHost = current.hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.+$/, '');
 
   for (let hop = 0; hop <= maxRedirects; hop++) {
     // THE TIMEOUT USED TO BE PER HOP, WHICH IS NOT A CEILING.
@@ -175,7 +194,17 @@ export async function boundedFetch(url, {
                error: 'the overall time budget for this check ran out' };
     }
     const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(), Math.min(timeoutMs, Math.max(1, remaining)));
+    // WHICH CLOCK THIS ABORT BELONGS TO IS DECIDED HERE, not re-derived after it fires.
+    //
+    // Asking `deadline - Date.now() <= 0` inside the catch to mean "the wall is why" is a race,
+    // and it was observed losing: the timer is armed for EXACTLY the time left, so when it
+    // fires the budget is zero give or take a millisecond, and a timer that lands a hair early
+    // reads as "not past the deadline" — and a stalled body gets reported as a successful
+    // empty one. Which timer won is known at arming time, so record it then.
+    const wallIsCloser = deadline != null && Math.max(1, remaining) <= timeoutMs;
+    let abortedByTimer = false;
+    const timer = setTimeout(() => { abortedByTimer = true; ac.abort(); },
+                             Math.min(timeoutMs, Math.max(1, remaining)));
     let res;
     try {
       res = await fetch(current.href, {
@@ -190,18 +219,37 @@ export async function boundedFetch(url, {
       return {
         status: null, headers: {}, body: '', bytes: 0,
         finalUrl: current.href, redirects,
-        error: `${e.name}: ${e.message}`,
+        // A server that stalls before its HEADERS hit the same wall as one that stalls in the
+        // body, and it should say the same thing rather than "AbortError".
+        error: abortedByTimer && wallIsCloser
+          ? 'the overall time budget for this check ran out'
+          : `${e.name}: ${e.message}`,
       };
     }
-    clearTimeout(timer);
+    // THE TIMER IS DELIBERATELY STILL ARMED HERE.
+    //
+    // It used to be cleared on this line, which disarmed the AbortController for the whole body
+    // read below — so a server that answered its headers in 4 ms and then trickled one byte
+    // every 400 ms was bounded by nothing at all. Measured: a 700 ms budget still running after
+    // 25 s, and 512 KiB at that rate is about 58 hours. Headers were bounded; the body was not,
+    // and the body is the part an attacker controls the pace of. It is cleared after the read
+    // instead, so `timeoutMs` and `deadline` cover the round trip they claim to cover.
 
     const h = {};
     for (const [k, v] of res.headers) h[k.toLowerCase()] = v;
 
     if (res.status >= 300 && res.status < 400 && h.location) {
+      clearTimeout(timer);   // this hop is over; the next pass through the loop arms its own
       let next;
+      // The vouch travels only as far as the machine it was made about (see `vouchedHost`).
+      let hopHost = null;
       try {
-        next = guardURL(new URL(h.location, current).href, { allowPrivate });
+        hopHost = new URL(h.location, current).hostname
+          .toLowerCase().replace(/^\[|\]$/g, '').replace(/\.+$/, '');
+      } catch { /* an unparseable Location falls through to guardURL, which refuses it */ }
+      const hopAllowPrivate = allowPrivate && hopHost !== null && hopHost === vouchedHost;
+      try {
+        next = guardURL(new URL(h.location, current).href, { allowPrivate: hopAllowPrivate });
       } catch (e) {
         return {
           status: res.status, headers: h, body: '', bytes: 0,
@@ -241,17 +289,51 @@ export async function boundedFetch(url, {
     // never PULL an unbounded body, so the reader is stopped at the byte budget.
     let bytes = 0;
     const chunks = [];
+    // THE BUDGET HAS TO BE CHECKED WHERE THE TIME IS ACTUALLY SPENT.
+    //
+    // The armed AbortController above is what makes the wall hold, and it is the half that
+    // covers the hard case: its timer is set to min(timeoutMs, what is left of the deadline),
+    // so it fires on time even for a body that sends NOTHING after its headers and therefore
+    // never resolves a read for any in-loop check to run between.
+    //
+    // WHAT THE SUITE CAN AND CANNOT PROVE ABOUT THE LINE BELOW, stated here so nobody later
+    // mistakes it for a tested guard. On Node it is unreachable: the abort is armed to exactly
+    // min(timeoutMs, time left), so it always fires first, and deleting this line changes no
+    // observable behaviour — measured, not assumed. It is kept because it does not rest on a
+    // runtime interrupting a read already IN FLIGHT, which is a guarantee this file cannot
+    // make across both places it ships (the Node CLI and Workers), and because it names the
+    // verdict directly instead of inferring it from a clock reading in an exception handler.
+    // If it is ever removed, the `catch` below is the only thing holding the wall up.
+    //
+    // Either way the caller gets the verdict and not a silently truncated body reported as a
+    // success: "we ran out of time" is a finding, and a short card is a different one.
+    let ranOut = false;
     if (res.body) {
       const reader = res.body.getReader();
       try {
         for (;;) {
+          if (deadline != null && deadline - Date.now() <= 0) { ranOut = true; break; }
           const { done, value } = await reader.read();
           if (done) break;
           bytes += value.byteLength;
           if (bytes <= maxBytes) chunks.push(value);
           else { await reader.cancel(); break; }
         }
-      } catch { /* a truncated body is still a result: report what arrived */ }
+      } catch {
+        // The abort lands here. If the wall is what fired it, say so; otherwise a truncated
+        // body is still a result and we report what arrived.
+        if (abortedByTimer && wallIsCloser) ranOut = true;
+      } finally {
+        clearTimeout(timer);
+        if (ranOut) await reader.cancel().catch(() => {});
+      }
+    } else {
+      clearTimeout(timer);
+    }
+    if (ranOut) {
+      return { status: null, headers: {}, body: '', bytes: 0,
+               finalUrl: current.href, redirects,
+               error: 'the overall time budget for this check ran out' };
     }
     const merged = new Uint8Array(chunks.reduce((n, c) => n + c.byteLength, 0));
     let off = 0;

@@ -15,10 +15,10 @@
 
 import { checkSite } from '../src/engine.mjs';
 import { dispatch, TOOLS } from '../src/mcp.mjs';
-import { guardURL, RefusedURL } from '../src/guard.mjs';
+import { guardURL, boundedFetch, RefusedURL } from '../src/guard.mjs';
 import { renderPage } from '../src/page.mjs';
 import { assertNoScore } from '../src/report.mjs';
-import { siteWithCard, bareSite, serve } from './fixtures.mjs';
+import { siteWithCard, bareSite, tricklingSite, serve } from './fixtures.mjs';
 
 let passed = 0;
 const failures = [];
@@ -151,16 +151,53 @@ section('5. the guard refuses what a public endpoint must never fetch');
   }
   // The one that matters most: the guard is applied to REDIRECT TARGETS, not only to the URL
   // that was typed. A guard on the front door only is not a guard.
-  const { serve } = await import('./fixtures.mjs');
-  const hop = await serve((req, res) => {
+  //
+  // WHY THIS IS ASSERTED ON `boundedFetch` AND NOT ON A REPORT. The fixture has to live on
+  // 127.0.0.1, so the check must run with `allowPrivate` or the FIRST hop is refused and the
+  // redirect rule is never reached — which means this check is specifically about what that
+  // flag does and does not excuse, and the flag is an argument to `boundedFetch`. The two
+  // facts below can only both hold if the HOP was re-validated: the named refusal, and an
+  // EMPTY redirect list, which is the assertion that the request was never made at all.
+  //
+  // The shape this replaced was `!r.reachable || /refused/`, and both arms were free. The
+  // guard was skipped under `allowPrivate`, so the hop WAS followed; the fetch to link-local
+  // then failed on a developer's laptop, `reachable` went false, and the check went green for
+  // the SSRF succeeding as far as this machine's routing table allowed. On a host where that
+  // address answers — the CI box this flag is aimed at — the same code takes the credentials.
+  const away = await serve((req, res) => {
     res.writeHead(302, { Location: 'http://169.254.169.254/latest/meta-data/' });
     res.end();
   });
-  const r = await checkSite(hop.origin, LOCAL);
-  ok(!r.reachable || /refused/.test(JSON.stringify(r)),
-     'a redirect into link-local space is refused rather than followed',
-     JSON.stringify(r).slice(0, 200));
-  await hop.close();
+  const off = await boundedFetch(away.origin, { allowPrivate: true, timeoutMs: 2000 });
+  ok(/^redirect refused/.test(off.error || ''),
+     'a redirect off the vouched machine into link-local space is refused',
+     JSON.stringify(off.error));
+  eq(off.redirects.length, 0, 'and the hop was never taken');
+  // And the report a user reads says we measured nothing, rather than reporting the refusal
+  // as an answer from the site.
+  const r = await checkSite(away.origin, LOCAL);
+  eq(r.reachable, false, 'a front page that bounces into link-local space measured nothing');
+  ok(/redirect refused/.test(JSON.stringify(r)), 'and the report names the refusal');
+  ok(!/door: absent/.test(r.verdict),
+     'and it does NOT report the door absent — that would be a finding we did not make');
+  await away.close();
+
+  // THE POSITIVE CONTROL, without which the above is passed by a guard that simply refuses
+  // every redirect and breaks the flag's one purpose. `allowPrivate` vouches for the machine
+  // the operator named, so a hop that STAYS on it is still followed.
+  const stay = await serve((req, res) => {
+    if (req.url === '/moved') {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      return res.end('arrived');
+    }
+    res.writeHead(302, { Location: '/moved' });
+    res.end();
+  });
+  const on = await boundedFetch(stay.origin, { allowPrivate: true, timeoutMs: 2000 });
+  eq(on.status, 200, 'a redirect that stays on the vouched machine is still followed');
+  eq(on.body, 'arrived', 'and it arrives at the destination');
+  eq(on.redirects.length, 1, 'and the hop is recorded');
+  await stay.close();
 }
 
 // ---------------------------------------------------------------- 6. MCP, both generations
@@ -295,6 +332,7 @@ section('9. every finding is actionable, cites its specification, and refuses to
 
   // The prompts are the most dangerous thing here: a remediation prompt is the most efficient
   // possible way to industrialise self-declaration. This is the guard.
+  ok(Object.keys(REMEDIES).length > 0, 'there are prompts to guard (else this proves nothing)');
   for (const [id, entry] of Object.entries(REMEDIES)) {
     const text = entry.prompt({ origin: 'https://example.com', host: 'example.com',
                                 did: 'did:key:z6MkExample', detail: '' });
@@ -484,6 +522,10 @@ section('13. the attacks a red-team found — each one run against the product')
        'a value quoted from the checked site carries no line break or control character',
        JSON.stringify(q.slice(0, 40)));
   }
+  // Guarded for the same reason the loop above is: an empty list runs no assertions and stays
+  // green. These two checks are the ones standing between a generated prompt and an injected
+  // instruction, so a regression that produced NO remedies must not read as 26 passes.
+  ok(i.remedies.length > 0, 'the fixture did get remedies generated (else this proves nothing)');
   for (const rem of i.remedies) {
     ok(!/\n\s*SYSTEM:/i.test(rem.prompt),
        `${rem.id}: no injected instruction starts a line in the generated prompt`);
@@ -521,13 +563,43 @@ section('13. the attacks a red-team found — each one run against the product')
   }), {}, {});
   eq(batch.status, 413, 'an oversized batch is refused before any work is done');
 
-  // A7. The time budget is for the whole check, not per hop.
-  const slow = await siteWithCard();
-  const t0 = Date.now();
-  await checkSite(slow.origin, { ...LOCAL, budgetMs: 700 });
-  ok(Date.now() - t0 < 4000, 'a check honours its overall budget',
-     `${Date.now() - t0}ms`);
-  await slow.close();
+  // A7. The time budget is for the whole check, not per hop — and not only for the headers.
+  //
+  // THE CEILING MOVES WITH THE BUDGET, OR THIS MEASURES NOTHING. What stood here timed
+  // `siteWithCard()` — which answers in 5 ms, measured — against a 4000 ms ceiling. That
+  // passes with the budget at 700 ms, passes with it at 20 s, and passes with the wall torn
+  // out entirely; the budget argument made no difference to the number at all. A ceiling has
+  // to sit close enough to the budget that only an enforced wall fits underneath it, so 2000
+  // against 700 (the real figure is ~705 ms, measured) rather than 4000 against anything.
+  //
+  // Both bodies are needed because different halves of the wall stop them: a body that
+  // DRIBBLES keeps every read resolving, and a body that STALLS resolves no read at all, so
+  // only the armed AbortController can end it. Before the fix the first ran 35x over its
+  // budget and the second would have run for about 58 hours.
+  const BUDGET_MS = 700, CEILING_MS = 2000, WATCHDOG_MS = 3000;
+  const TIMED_OUT = Symbol('timed out');
+  for (const [how, everyMs] of [['dribbles', 400], ['stalls outright', 60000]]) {
+    const slow = await tricklingSite({ everyMs });
+    const t0 = Date.now();
+    // An unenforced budget does not fail this check, it HANGS it, and a suite that never
+    // finishes reports nothing. The watchdog turns that into a red line.
+    let wd;
+    const got = await Promise.race([
+      checkSite(slow.origin, { ...LOCAL, budgetMs: BUDGET_MS }).catch((e) => ({ threw: String(e) })),
+      new Promise((res) => { wd = setTimeout(() => res(TIMED_OUT), WATCHDOG_MS); }),
+    ]);
+    clearTimeout(wd);
+    const elapsed = Date.now() - t0;
+    ok(got !== TIMED_OUT && elapsed < CEILING_MS,
+       `a check honours its overall budget when the body ${how}`,
+       `${elapsed}ms against a ${BUDGET_MS}ms budget`);
+    // Paired with the clock, because a check that returned fast for an unrelated reason would
+    // satisfy the timing on its own. This one says the WALL is why it came back.
+    ok(got !== TIMED_OUT
+       && /the overall time budget for this check ran out/.test(JSON.stringify(got)),
+       `and the budget is named as the reason when the body ${how}`);
+    await slow.close();
+  }
 
   // A8. The page carries a policy, so one missed escape is not instantly exploitable.
   const page = await worker.fetch(new Request('https://check.muretai.com/'), {}, {});

@@ -199,6 +199,48 @@ export async function siteWithCard({ mutate = 'none', extras = {} } = {}) {
   return { ...ref, did, seed, mutate };
 }
 
+/**
+ * A site that answers its HEADERS promptly and then trickles the body forever.
+ *
+ * This is the shape a time budget actually has to survive, and the shape no other fixture here
+ * can test: every one of them answers in single-digit milliseconds, so a check against one
+ * finishes long before any wall and would finish just as fast with the wall torn out. A server
+ * that is quick to respond and then slow to finish is the cheap way to hold a connection open —
+ * the headers pass any timeout that only covers the response, and the bytes then arrive just
+ * often enough that nothing looks stalled.
+ *
+ * `everyMs` is the gap between body bytes, and `end` is never called. Two settings matter:
+ * a few hundred ms DRIBBLES (every read resolves, so nothing looks stuck), and a value past
+ * the budget STALLS outright (no read ever resolves). They are bounded by different halves of
+ * the fix, so both are worth pointing a check at.
+ *
+ * `close` destroys the open sockets rather than waiting for them, so that a suite running
+ * against a BROKEN deadline still exits and reports a red line instead of hanging.
+ */
+export async function tricklingSite({ everyMs = 400 } = {}) {
+  const timers = new Set();
+  const open = new Set();
+  const site = await serve((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.write('{');
+    open.add(res);
+    const t = setInterval(() => { try { res.write(' '); } catch { clearInterval(t); } }, everyMs);
+    timers.add(t);
+    const stop = () => { clearInterval(t); timers.delete(t); open.delete(res); };
+    res.on('close', stop);
+  });
+  return {
+    ...site,
+    close: async () => {
+      for (const t of timers) clearInterval(t);
+      timers.clear();
+      for (const res of open) { try { res.destroy(); } catch { /* already gone */ } }
+      open.clear();
+      await site.close();
+    },
+  };
+}
+
 /** A site with no agent-facing surface at all. */
 export async function bareSite() {
   return serve((req, res) => {
