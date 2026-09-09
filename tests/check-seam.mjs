@@ -43,13 +43,13 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 /** agent-seam v0.3.2 (0756513): js/seam.mjs as vendored on 2026-09-08. Written by hand from the
  *  commands in the header; tests/check-seam.mjs (this file) holds src/seam.mjs to these. */
-const PINNED_REF = 'v0.3.2';
-const PINNED_COMMIT = '07565135bcdd29b6749c8b87ba70b64b9d6465ba';
-const PINNED_VERSION = '0.3.2';
+const PINNED_REF = 'v0.3.3';
+const PINNED_COMMIT = '696eb8dd1ed8a83a8d4259fdc6052d4c9307a695';
+const PINNED_VERSION = '0.3.3';
 const PINNED_DATE = '2026-09-09';
 const PINNED_SOURCE = 'js/seam.mjs';
 /** sha256 of src/seam.mjs as written at that commit. */
-const EXPECTED = '56d0ad76f53002aaccf61ae735d446dd13043014b8a7afee22a8386af9fabe01';
+const EXPECTED = '0b724e456ebedf9063f8e562a4b77f70ddedbdc7c9880e80121dbe56995792ed';
 
 const sha = (b) => createHash('sha256').update(b).digest('hex');
 let pass = 0;
